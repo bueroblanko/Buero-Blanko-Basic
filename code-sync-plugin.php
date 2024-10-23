@@ -82,7 +82,7 @@ run_code_sync();
 
 require 'plugin-update-checker/plugin-update-checker.php';
 $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
-	'https://github.com/Ilyeshaddad337/code-sync-plugin',
+	'https://github.com/bueroblanko/Buero-Blanko-Basic',
 	__FILE__,
 	'code-sync-plugin'
 );

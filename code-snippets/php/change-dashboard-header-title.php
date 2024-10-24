@@ -8,7 +8,7 @@
             return;
         }
 
-        $GLOBALS['title'] =  __( 'Ihre Website Übersicht' ); 
+        $GLOBALS['title'] =  __( 'Website Overview' ); 
     }
 
     add_action( 'admin_head', 'my_custom_dashboard_name' );

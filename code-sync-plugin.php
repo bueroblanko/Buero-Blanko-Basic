@@ -13,7 +13,7 @@
  * @package           Code_Sync
  *
  * @wordpress-plugin
- * Plugin Name:       Buero Blanko Basic
+ * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       to sync all code snippets across client sites
  * Version:           0.0.2

@@ -8,17 +8,17 @@
  * registers the activation and deactivation functions, and defines a function
  * that starts the plugin.
  *
- * @link              https://ilyeshaddad.com
+ * @link              https://bueroblanko.de
  * @since             0.0.0
  * @package           Code_Sync
  *
  * @wordpress-plugin
- * Plugin Name:       Code Sync
- * Plugin URI:        https://ilyeshaddad.com
- * Description:       to sync all code snippets across clients
+ * Plugin Name:       Buero Blanko Basic
+ * Plugin URI:        https://bueroblanko.de
+ * Description:       to sync all code snippets across client sites
  * Version:           0.0.0
- * Author:            Ilyes
- * Author URI:        https://ilyeshaddad.com/
+ * Author:            Büro Blanko Medien GmbH
+ * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       code-sync-plugin

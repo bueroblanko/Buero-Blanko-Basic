@@ -4,7 +4,7 @@
 // 1. Farb-Schema erstellen
 function wpacg_bb_admin_color_scheme() {
     // Setze den absoluten Link zur CSS-Datei
-    $css_url = '/wp-content/uploads/bb.css'; // Ändere dies entsprechend
+    $css_url = '/wp-content/plugins/buero-blanko-basic/includes/bb.css'; // Ändere dies entsprechend
 
     // BB
     wp_admin_css_color('bb', __('BB'), $css_url, array('#1c1c1c', '#fff', '#7535e0', '#000000'));

@@ -7,7 +7,7 @@ function my_custom_login_styles() {
 
         /* Replace WordPress logo and link to custom site */
         #login h1 a {
-            background: url('/wp-content/uploads/2024/10/bb-logo.svg') no-repeat center center;
+            background: url('/wp-content/plugins/buero-blanko-basic/includes/img/bb-logo.svg') no-repeat center center;
             width: 50px; /* Width to match the standard WordPress logo */
             height: 50px; /* Height to match the standard WordPress logo */
             background-size: contain;

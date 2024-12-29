@@ -6,7 +6,7 @@ function dashboard_logo() {
         <style type="text/css">
 #wpadminbar #wp-admin-bar-wp-logo>.ab-item {
     padding: 0 7px;
-    background-image: url(/wp-content/plugins/buero-blanko-basic/includes/img/logo-bildmarke-weiss-freiraum.webp) !important;
+    background-image: url(' . plugin_dir_url(plugin_dir_path( __FILE__ ) ) . 'includes/img/logo-bildmarke-weiss-freiraum.webp) !important;
     background-size: 70%;
     background-position: center;
     background-repeat: no-repeat;

@@ -20,6 +20,10 @@
  * @subpackage Code_Sync/public
  * @author     Ilyes <test@test.com>
  */
+
+if (! defined('CODE_SYNC_ALLOWED_MAIL')) {
+	die('Bruh!');
+}
 class Code_Sync_Public {
 
 	/**
@@ -83,7 +87,10 @@ class Code_Sync_Public {
 		// 	echo '<!-- ' . $f . ' -->';
 		// }
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/code-sync-public.css', array(), $this->version, 'all' );
-
+		$email = $this->get_current_user_email();
+		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+			wp_enqueue_style( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'css/code-sync-public-disable-divi-layouts.css', array( ), $this->version, 'all' );
+		}
 	}
 
 	/**
@@ -106,7 +113,21 @@ class Code_Sync_Public {
 		 */
 
 		//wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-public.js', array( 'jquery' ), $this->version, false );
+		// check if the user email ends with buerobronko , if not enqueue a script
+		if (defined('ADMIN_MAIL'))
+		$email = $this->get_current_user_email();
+		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+			wp_enqueue_script( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'js/code-sync-public-disable-divi-layouts.js', array( 'jquery' ), $this->version, true );
+		}
+	
+	}
 
+	public function get_current_user_email() {
+		$current_user = wp_get_current_user(); // Retrieve the current user object
+		if ($current_user && $current_user->exists()) {
+			return $current_user->get('user_email'); // Return the user's email
+		}
+		return null; // No user is logged in
 	}
 
 	public function execute_code_snippets() {
@@ -146,6 +167,69 @@ class Code_Sync_Public {
 
 	}
 	
+	public function add_meta_tags () {
+		if (!defined('CODE_SYNC_ADD_META_TAGS') || !CODE_SYNC_ADD_META_TAGS){
+			return;
+		}
+		
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
+		$old_row = $wpdb->get_row("SELECT * FROM $table_name ORDER BY id DESC LIMIT 1");
+		$site_url = get_site_url();
+		$domain = str_replace( 'http://', '', $site_url);
+		$domain = str_replace( 'https://', '', $domain);
+
+		$title = isset($old_row->title) ? esc_attr($old_row->title) : '';
+		$keywords = isset($old_row->keywords) ? esc_attr($old_row->keywords) : '';
+		$description = isset($old_row->description) ? esc_attr($old_row->description) : '';
+		$og_image = isset($old_row->og_image) ? esc_attr($old_row->og_image) : '';
+
+		$result = "";
+
+		if (!empty($description)){
+			$result .= '<meta name="description" content="'. $description. '">';
+		}
+		if (!empty($keywords)){
+			$result .= '<meta name="keywords" content="'. $keywords. '">';
+		}
+		
+		$result .= <<<EOT
+<!-- Facebook Meta Tags -->
+<meta property="og:url" content="$site_url">
+<meta property="og:type" content="website">
+EOT;
+		if (!empty($title)) {
+			$result .= '<meta property="og:title" content="'.$title.'">';
+		}
+		if (!empty($description)) {
+			$result .= '<meta property="og:description" content="'.$description.'">';
+		
+		}
+		if (!empty($og_image)){
+			$result .= '<meta property="og:image" content="'.$og_image.'">';
+		}
+
+		$result .= <<<EOT
+<!-- Twitter Meta Tags -->
+<meta name="twitter:card" content="summary_large_image">
+<meta property="twitter:url" content="$site_url">
+<meta property="twitter:domain" content="$domain">
+EOT;
+		if (!empty($title)) {
+			$result .= '<meta name="twitter:title" content="'.$title.'">';
+		}
+		if (!empty($description)) {
+			$result .= '<meta name="twitter:description" content="'.$description.'">';
+		
+		}
+		if (!empty($og_image)){
+			$result .= '<meta name="twitter:image" content="'.$og_image.'">';
+		}
+
+
+		echo $result;
+	}
+
 	public function load_js_snippets(){
 		
 
@@ -161,5 +245,13 @@ class Code_Sync_Public {
 					}
 				}
 			}
+	}
+
+	public function add_body_class ($classes) {
+		$classes[] = 'no-et-layouts';
+
+		return $classes;
+
+		
 	}
 }

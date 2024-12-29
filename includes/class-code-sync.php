@@ -153,10 +153,33 @@ class Code_Sync {
 	private function define_admin_hooks() {
 
 		$plugin_admin = new Code_Sync_Admin( $this->get_plugin_name(), $this->get_version() );
-
+		
+		// add the admin page
+		$this->loader->add_action ('admin_menu', $plugin_admin, 'register_admin_page');
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
+		$existLayout = get_posts(
+		[
 
+			'post_type'   => 'et_pb_layout',
+			'post_status' => 'publish',
+			'showposts'   => 1,
+			'tax_query'   =>
+
+			[
+				[
+
+				'taxonomy' => 'layout_type',
+				'terms'    => 'layout',
+				'field'    => 'slug',
+
+				]
+			]]
+		);
+
+		if ( count( $existLayout ) < 1 ) {
+			$this->loader->add_filter('admin_body_class' , $plugin_admin, 'add_admin_body_class' );
+		};
 	}
 
 	/**
@@ -173,10 +196,37 @@ class Code_Sync {
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_styles' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_scripts' );
 
+
+		// add a action that will stick to wp_head and add the meta tags
+		$this->loader->add_action( 'wp_head', $plugin_public, 'add_meta_tags' , 999);
+
+
 		// here i should loop through each file in the code-snippets folder and add
 		$this->loader->add_action( 'plugins_loaded', $plugin_public, 'execute_code_snippets' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'load_js_snippets' );
 
+		$existLayout = get_posts(
+		[
+
+			'post_type'   => 'et_pb_layout',
+			'post_status' => 'publish',
+			'showposts'   => 1,
+			'tax_query'   =>
+
+			[
+				[
+
+				'taxonomy' => 'layout_type',
+				'terms'    => 'layout',
+				'field'    => 'slug',
+
+				]
+			]]
+		);
+
+		if ( count( $existLayout ) < 1 ) {
+			$this->loader->add_filter('body_class' , $plugin_public, 'add_body_class' );
+		};
 
 	}
 

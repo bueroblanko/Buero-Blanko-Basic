@@ -30,7 +30,11 @@ class Code_Sync_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
 
+		$sql = "DROP TABLE IF EXISTS $table_name;";
+		$wpdb->query($sql);
 	}
 
 }

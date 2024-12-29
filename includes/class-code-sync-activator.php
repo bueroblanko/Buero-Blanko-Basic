@@ -30,7 +30,21 @@ class Code_Sync_Activator {
 	 * @since    1.0.0
 	 */
 	public static function activate() {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
+		$charset_collate = $wpdb->get_charset_collate();
 
+		$sql = "CREATE TABLE $table_name (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			title VARCHAR(255) NOT NULL,
+			description TEXT NOT NULL,
+			og_image VARCHAR(255),
+			keywords VARCHAR(255),
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		) $charset_collate;";
+
+		require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+		dbDelta($sql);
 	}
 
 }

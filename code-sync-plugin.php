@@ -35,6 +35,23 @@ if ( ! defined( 'WPINC' ) ) {
  * Rename this for your plugin and update it as you release new versions.
  */
 define( 'CODE_SYNC_VERSION', '1.0.0' );
+define('CODE_SYNC_ALLOWED_MAIL', 'bueroblanko.de');
+
+// check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
+$plugs = ['wpmu-dev-seo/wpmu-dev-seo.php','smartcrawl-seo/wpmu-dev-seo.php', 'wordpress-seo/wp-seo.php', 'all-in-one-seo-pack/all_in_one_seo_pack.php'];
+if ( ! function_exists( 'is_plugin_active' ) ) {
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+}
+$exists = false;
+foreach ($plugs as $p ) {
+	if ( is_plugin_active( $p ) ) {
+    	$exists = true;
+		break;
+	}
+}
+define( 'CODE_SYNC_ADD_META_TAGS', !$exists );
+
+
 
 /**
  * The code that runs during plugin activation.
@@ -57,6 +74,9 @@ function deactivate_code_sync() {
 register_activation_hook( __FILE__, 'activate_code_sync' );
 register_deactivation_hook( __FILE__, 'deactivate_code_sync' );
 
+
+
+
 /**
  * The core plugin class that is used to define internationalization,
  * admin-specific hooks, and public-facing site hooks.
@@ -76,7 +96,7 @@ function run_code_sync() {
 
 	$plugin = new Code_Sync();
 	$plugin->run();
-
+	
 }
 run_code_sync();
 

@@ -29,7 +29,8 @@ class Code_Sync_Activator {
 	 *
 	 * @since    1.0.0
 	 */
-	public static function activate() {
+	public static function activate() {		
+
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
 		$charset_collate = $wpdb->get_charset_collate();

@@ -43,7 +43,7 @@ define( 'CODE_SYNC_PLUGIN_VERSION', '0.0.9' );
 
 // Anmeldung beim BB Cockpit (siehe includes/class-code-sync-anmeldung.php).
 // Leer lassen schaltet die Meldung ab.
-define( 'CODE_SYNC_COCKPIT_TOKEN', 'HIER_TOKEN_EINSETZEN' );
+define( 'CODE_SYNC_COCKPIT_TOKEN', 'aa72f3a3cb3ca28fa394e72cae70ac0f078af921011ab3a3' );
 
 // check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
 $plugs = ['wpmu-dev-seo/wpmu-dev-seo.php','smartcrawl-seo/wpmu-dev-seo.php', 'wordpress-seo/wp-seo.php', 'all-in-one-seo-pack/all_in_one_seo_pack.php'];

@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       to sync all code snippets across client sites
- * Version:           0.0.8
+ * Version:           0.0.9
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -36,6 +36,14 @@ if ( ! defined( 'WPINC' ) ) {
  */
 define( 'CODE_SYNC_VERSION', '1.0.0' );
 define('CODE_SYNC_ALLOWED_MAIL', 'bueroblanko.de');
+
+// Version aus dem Plugin-Header oben — wird ans Cockpit gemeldet, damit man
+// dort sieht, welche Seite auf welchem Stand steht
+define( 'CODE_SYNC_PLUGIN_VERSION', '0.0.9' );
+
+// Anmeldung beim BB Cockpit (siehe includes/class-code-sync-anmeldung.php).
+// Leer lassen schaltet die Meldung ab.
+define( 'CODE_SYNC_COCKPIT_TOKEN', 'HIER_TOKEN_EINSETZEN' );
 
 // check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
 $plugs = ['wpmu-dev-seo/wpmu-dev-seo.php','smartcrawl-seo/wpmu-dev-seo.php', 'wordpress-seo/wp-seo.php', 'all-in-one-seo-pack/all_in_one_seo_pack.php'];
@@ -60,6 +68,10 @@ define( 'CODE_SYNC_ADD_META_TAGS', !$exists );
 function activate_code_sync() {
 	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-activator.php';
 	Code_Sync_Activator::activate();
+
+	// beim Aktivieren sofort einmal melden und den taeglichen Lauf einplanen
+	Code_Sync_Anmeldung::planen();
+	Code_Sync_Anmeldung::melden();
 }
 
 /**
@@ -69,7 +81,15 @@ function activate_code_sync() {
 function deactivate_code_sync() {
 	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-deactivator.php';
 	Code_Sync_Deactivator::deactivate();
+
+	Code_Sync_Anmeldung::abmelden();
 }
+
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-anmeldung.php';
+add_action( Code_Sync_Anmeldung::HOOK, array( 'Code_Sync_Anmeldung', 'melden' ) );
+// falls das Plugin schon vor dieser Version aktiv war, gibt es noch keinen
+// Cron-Eintrag — der wird hier nachgeholt
+add_action( 'init', array( 'Code_Sync_Anmeldung', 'planen' ) );
 
 register_activation_hook( __FILE__, 'activate_code_sync' );
 register_deactivation_hook( __FILE__, 'deactivate_code_sync' );

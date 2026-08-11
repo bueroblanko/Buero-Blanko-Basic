@@ -86,6 +86,9 @@ function deactivate_code_sync() {
 }
 
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-anmeldung.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-screenshot.php';
+// spaet einhaengen, damit das CSS nach dem der Banner-Plugins steht
+add_action( 'wp_head', array( 'Code_Sync_Screenshot', 'kopf' ), 999 );
 add_action( Code_Sync_Anmeldung::HOOK, array( 'Code_Sync_Anmeldung', 'melden' ) );
 // falls das Plugin schon vor dieser Version aktiv war, gibt es noch keinen
 // Cron-Eintrag — der wird hier nachgeholt

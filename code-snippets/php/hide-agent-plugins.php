@@ -18,6 +18,14 @@
 // Bewusst nur Closures und keine benannten Funktionen: ein doppelt deklarierter
 // Funktionsname wäre im eval() ein Fatal Error auf jeder Seite.
 
+// Gibt es dieselbe Logik schon als mu-plugin (mu-plugin/bb-hide-agent-plugins.php),
+// läuft nur das mu-plugin. Beide prüfen dieselbe Konstante, so greift nie beides.
+// Diesen Block bei Änderungen 1:1 ins mu-plugin übernehmen.
+if ( defined( 'BB_HIDE_AGENT_PLUGINS' ) ) {
+    return;
+}
+define( 'BB_HIDE_AGENT_PLUGINS', 'snippet' );
+
 $bb_agent_keywords = array( 'respira', 'novamira' );
 $bb_agent_option   = 'bb_agent_plugin_owners';
 

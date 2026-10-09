@@ -70,13 +70,16 @@ class Code_Sync_Freigabe {
 		add_action( 'wp_abilities_api_init', array( __CLASS__, 'werkzeuge_anmelden' ) );
 		add_action( 'admin_menu', array( __CLASS__, 'menue' ) );
 		add_action( 'admin_post_bb_freigabe', array( __CLASS__, 'aktion' ) );
+		add_action( 'admin_post_bb_entwurf', array( __CLASS__, 'entwurf_aktion' ) );
 		add_filter( 'display_post_states', array( __CLASS__, 'kennzeichnen' ), 10, 2 );
+		add_filter( 'page_row_actions', array( __CLASS__, 'zeilen_aktion' ), 10, 2 );
+		add_filter( 'post_row_actions', array( __CLASS__, 'zeilen_aktion' ), 10, 2 );
+		add_filter( 'wp_insert_post_data', array( __CLASS__, 'post_schutz' ), PHP_INT_MAX, 2 );
 
 		if ( 'live' === $stufe ) {
 			add_action( 'wp_before_execute_ability', array( __CLASS__, 'schutz_an' ), 1 );
 			add_filter( 'novamira_mcp_adapter_pre_tool_call', array( __CLASS__, 'vorpruefung' ), 10, 2 );
 			add_filter( 'wp_insert_post_empty_content', array( __CLASS__, 'post_sperre' ), PHP_INT_MAX, 2 );
-			add_filter( 'wp_insert_post_data', array( __CLASS__, 'post_schutz' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_delete_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_trash_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
 			foreach ( array( 'add', 'update', 'delete' ) as $art ) {
@@ -172,10 +175,13 @@ class Code_Sync_Freigabe {
 		return $leer;
 	}
 
-	/** Entwuerfe bleiben Entwuerfe. Veroeffentlicht wird nur ueber die Freigabe. */
+	/**
+	 * Entwuerfe bleiben Entwuerfe, auch wenn jemand im Builder auf Veroeffentlichen klickt.
+	 * Veroeffentlicht wird nur ueber die Freigabe. In den Papierkorb duerfen sie.
+	 */
 	public static function post_schutz( $daten, $postarr ) {
 		$id = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
-		if ( self::$schutz && ! self::$intern && $id > 0 && self::ist_entwurf( $id ) ) {
+		if ( ! self::$intern && $id > 0 && isset( $daten['post_status'] ) && in_array( $daten['post_status'], array( 'publish', 'future', 'private' ), true ) && self::ist_entwurf( $id ) ) {
 			$daten['post_status'] = get_post_status( $id );
 		}
 		return $daten;
@@ -661,6 +667,34 @@ class Code_Sync_Freigabe {
 		return $zustaende;
 	}
 
+	/** Zeilenaktion in der Seiten- und Beitragsliste: BB-Entwurf anlegen oder bearbeiten. */
+	public static function zeilen_aktion( $aktionen, $post ) {
+		if ( ! self::bueroblanko_konto() || ! in_array( $post->post_type, self::typen(), true ) || ! in_array( $post->post_status, array( 'publish', 'future', 'private' ), true ) || self::ist_entwurf( $post->ID ) ) {
+			return $aktionen;
+		}
+		$vorhanden = self::entwurf_zu( $post->ID );
+		if ( $vorhanden ) {
+			$aktionen['bb_entwurf'] = '<a href="' . esc_url( get_edit_post_link( $vorhanden ) ) . '">BB-Entwurf bearbeiten</a>';
+		} else {
+			$link                   = wp_nonce_url( add_query_arg( array( 'action' => 'bb_entwurf', 'id' => $post->ID ), admin_url( 'admin-post.php' ) ), 'bb_entwurf_' . $post->ID );
+			$aktionen['bb_entwurf'] = '<a href="' . esc_url( $link ) . '">BB-Entwurf anlegen</a>';
+		}
+		return $aktionen;
+	}
+
+	public static function entwurf_aktion() {
+		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
+		if ( ! self::bueroblanko_konto() || ! $id || ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'bb_entwurf_' . $id ) ) {
+			wp_die( 'Nicht erlaubt.' );
+		}
+		$ergebnis = self::entwurf_anlegen( $id );
+		if ( is_wp_error( $ergebnis ) ) {
+			wp_die( esc_html( $ergebnis->get_error_message() ) );
+		}
+		wp_safe_redirect( admin_url( 'post.php?post=' . (int) $ergebnis['entwurf_id'] . '&action=edit' ) );
+		exit;
+	}
+
 	public static function aktion() {
 		if ( ! self::bueroblanko_konto() || ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( $_POST['_wpnonce'] ), 'bb_freigabe' ) ) {
 			wp_die( 'Nicht erlaubt.' );
@@ -728,6 +762,7 @@ class Code_Sync_Freigabe {
 				}
 				echo '</td><td>' . esc_html( (string) get_post_meta( $entwurf->ID, self::NOTIZ, true ) ) . '</td><td>';
 				echo '<a class="button" href="' . esc_url( get_preview_post_link( $entwurf ) ) . '" target="_blank">Vorschau</a> ';
+				echo '<a class="button" href="' . esc_url( get_edit_post_link( $entwurf->ID ) ) . '">Bearbeiten</a> ';
 				if ( $konflikt ) {
 					echo self::knopf( 'trotzdem', $entwurf->ID, 'Trotzdem freigeben', 'button button-primary', 'Die Live-Seite wurde seit dem Entwurf geändert. Trotzdem überschreiben?' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				} else {

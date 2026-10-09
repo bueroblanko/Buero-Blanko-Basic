@@ -87,9 +87,13 @@ class Code_Sync_Developer_Modus {
 			return;
 		}
 
-		// Abgleich sofort, wenn sich die Stufe geaendert hat, sonst stuendlich.
+		// Abgleich sofort, wenn sich die Stufe geaendert hat oder Novamira noch fehlt
+		// (dann hoechstens alle 5 Minuten), sonst stuendlich.
 		$naechster = wp_next_scheduled( self::CRON );
-		if ( $naechster && $naechster > time() + 60 && $status['stufe'] !== self::$zustand['stufe'] ) {
+		$an      = in_array( self::$zustand['stufe'], array( 'build', 'live' ), true );
+		$fehlt   = $status['aufraeumen'] || ( $an && ! file_exists( self::hauptdatei( self::NOVAMIRA ) ) );
+		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
+		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
 		}
 		if ( ! wp_next_scheduled( self::CRON ) ) {
@@ -156,13 +160,28 @@ class Code_Sync_Developer_Modus {
 			return;
 		}
 
-		// Updates holt BB Basic selbst. Novamiras eigener Updater wuerde sonst ein
-		// Update fuer ein Plugin melden, das nicht in der Plugin-Liste steht.
-		remove_filter( 'site_transient_update_plugins', 'novamira_check_for_updates' );
-		remove_filter( 'plugins_api', 'novamira_plugins_api' );
+		// Updates holt BB Basic selbst. Die Updater von Novamira und Pro wuerden sonst
+		// ein Update fuer ein Plugin melden, das nicht in der Plugin-Liste steht.
+		self::updater_abhaengen();
 
 		add_action( 'admin_menu', array( __CLASS__, 'menue' ), PHP_INT_MAX );
 		add_action( 'wp_loaded', array( __CLASS__, 'aktivieren' ) );
+	}
+
+	private static function updater_abhaengen() {
+		global $wp_filter;
+		foreach ( array( 'site_transient_update_plugins', 'pre_set_site_transient_update_plugins', 'plugins_api' ) as $hook ) {
+			if ( empty( $wp_filter[ $hook ] ) ) {
+				continue;
+			}
+			foreach ( $wp_filter[ $hook ]->callbacks as $prio => $eintraege ) {
+				foreach ( $eintraege as $eintrag ) {
+					if ( is_string( $eintrag['function'] ) && preg_match( '#^\\\\?novamira#i', $eintrag['function'] ) ) {
+						remove_filter( $hook, $eintrag['function'], $prio );
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -389,16 +408,24 @@ class Code_Sync_Developer_Modus {
 	 */
 	private static function entfernen( &$status ) {
 		self::cron_aufraeumen();
-		$uninstall = self::modul_dir() . '/' . self::NOVAMIRA . '/uninstall.php';
-		if ( file_exists( $uninstall ) && ! function_exists( 'novamira_uninstall_plan' ) ) {
-			if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-				define( 'WP_UNINSTALL_PLUGIN', self::ORDNER . '/' . self::NOVAMIRA . '/novamira.php' );
-			}
-			try {
-				include $uninstall;
-			} catch ( Throwable $e ) {
-				// Daten bleiben dann liegen, der Ordner kommt trotzdem weg.
-				unset( $e );
+		// Wie beim Loeschen eines Plugins: deren uninstall.php raeumt Daten auf,
+		// Pro meldet dabei auch die Lizenz fuer diese Domain ab. Nur wenn die
+		// Dateien in diesem Aufruf nicht geladen sind (Clear wirkt im naechsten Aufruf).
+		if ( empty( self::$geladen ) ) {
+			foreach ( array( self::PRO, self::NOVAMIRA ) as $name ) {
+				$uninstall = self::modul_dir() . '/' . $name . '/uninstall.php';
+				if ( ! file_exists( $uninstall ) ) {
+					continue;
+				}
+				if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
+					define( 'WP_UNINSTALL_PLUGIN', self::ORDNER . '/' . $name . '/' . $name . '.php' );
+				}
+				try {
+					include $uninstall;
+				} catch ( Throwable $e ) {
+					// Daten bleiben dann liegen, der Ordner kommt trotzdem weg.
+					unset( $e );
+				}
 			}
 		}
 		if ( is_dir( self::modul_dir() ) && ! self::ordner_loeschen( self::modul_dir() ) ) {
@@ -415,7 +442,7 @@ class Code_Sync_Developer_Modus {
 	private static function cron_aufraeumen() {
 		foreach ( (array) _get_cron_array() as $termine ) {
 			foreach ( array_keys( (array) $termine ) as $hook ) {
-				if ( 0 === strpos( $hook, 'novamira' ) ) {
+				if ( 0 === strpos( $hook, 'novamira' ) || 0 === strpos( $hook, 'nvp' ) ) {
 					wp_clear_scheduled_hook( $hook );
 				}
 			}

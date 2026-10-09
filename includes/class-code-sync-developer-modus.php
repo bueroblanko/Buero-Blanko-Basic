@@ -31,7 +31,7 @@ class Code_Sync_Developer_Modus {
 	const MANIFEST_URL  = 'https://cockpit.bueroblanko.de/module/novamira/manifest.json';
 	// Oeffentlicher Ed25519-Schluessel (base64). Der private Schluessel liegt nur auf Philipps Mac.
 	// Leer = es wird nichts nachgeladen.
-	const PUBLIC_KEY    = '';
+	const PUBLIC_KEY    = 'L1UT2jysxP1ulgzkHe0flHBt37sR3vZvs+HQl8az8s4=';
 	const OPTION        = 'code_sync_devmodus';
 	const CRON          = 'code_sync_devmodus_holen';
 	const CRON_WEG      = 'code_sync_devmodus_aufraeumen';

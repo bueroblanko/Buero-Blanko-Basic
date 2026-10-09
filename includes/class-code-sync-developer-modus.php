@@ -390,8 +390,48 @@ class Code_Sync_Developer_Modus {
 		return 0 === strpos( $name, 'core/get-' );
 	}
 
+	public static function stufe() {
+		return self::$zustand ? self::$zustand['stufe'] : 'clear';
+	}
+
+	/** Stufen, auf die im Backend heruntergeschaltet werden darf (Hochschalten nur per FTP). */
+	public static function niedrigere_stufen() {
+		$reihe = array( 'clear', 'sleep', 'live', 'build' );
+		$pos   = array_search( self::stufe(), $reihe, true );
+		return array_reverse( array_slice( $reihe, 0, (int) $pos ) );
+	}
+
 	/**
-	 * Daten fuer die Karte unter Werkzeuge → BB Basic.
+	 * Im Backend herunterschalten. Hochschalten geht absichtlich nur per FTP,
+	 * damit ein fremdes Admin-Konto den Developer-Modus nicht einschalten kann.
+	 */
+	public static function herunterschalten( $neu ) {
+		if ( ! in_array( $neu, self::niedrigere_stufen(), true ) ) {
+			return 'Diese Stufe ist von hier aus nicht erlaubt.';
+		}
+		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
+		if ( 'clear' === $neu ) {
+			// Datei samt Lizenzschluessel entfernen.
+			if ( file_exists( $datei ) && ! @unlink( $datei ) ) {
+				return 'Schalter-Datei konnte nicht geloescht werden.';
+			}
+			self::$zustand = array( 'stufe' => 'clear', 'lizenz' => '', 'grund' => '' );
+		} else {
+			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', self::$zustand['bis'] ) );
+			if ( '' !== self::$zustand['lizenz'] ) {
+				$zeilen[] = 'lizenz=' . self::$zustand['lizenz'];
+			}
+			if ( false === @file_put_contents( $datei, implode( "\n", $zeilen ) . "\n" ) ) {
+				return 'Schalter-Datei konnte nicht geschrieben werden.';
+			}
+			self::$zustand = self::schalter_lesen( $datei );
+		}
+		self::abgleich();
+		return '';
+	}
+
+	/**
+	 * Daten fuer die Anzeige unter Werkzeuge → BB Basic.
 	 */
 	public static function anzeige() {
 		$zustand = self::$zustand ? self::$zustand : array( 'stufe' => 'clear' );

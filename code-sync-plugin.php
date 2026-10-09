@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.16
+ * Version:           0.0.16.1
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -137,12 +137,46 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 
 // Update-Kanal: Alle Seiten folgen dem Branch "live". Testseiten folgen "main",
 // wenn in ihrer wp-config.php steht: define( 'BB_BASIC_UPDATE_KANAL', 'test' );
+// Eine Testseite kann stattdessen einem Entwicklungs-Branch folgen:
+// define( 'BB_BASIC_TEST_ZWEIG', 'name-des-branches' );
 // Ablauf siehe NEWUPDATE.md.
-define(
-	'CODE_SYNC_UPDATE_BRANCH',
-	( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) ? 'main' : 'live'
-);
+$code_sync_zweig = 'live';
+if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
+	$code_sync_zweig = 'main';
+	if ( defined( 'BB_BASIC_TEST_ZWEIG' ) && preg_match( '#^[A-Za-z0-9._/-]{1,100}$#', (string) BB_BASIC_TEST_ZWEIG ) ) {
+		$code_sync_zweig = BB_BASIC_TEST_ZWEIG;
+	}
+}
+define( 'CODE_SYNC_UPDATE_BRANCH', $code_sync_zweig );
 $myUpdateChecker->setBranch( CODE_SYNC_UPDATE_BRANCH );
+
+// Testseiten sehen alle 10 Minuten nach und spielen eine neue Version sofort ein,
+// statt auf die WordPress-Updates (bis zu 12 Stunden) zu warten.
+if ( 'live' !== CODE_SYNC_UPDATE_BRANCH ) {
+	add_filter( 'cron_schedules', function ( $plaene ) {
+		$plaene['bb_basic_10min'] = array( 'interval' => 10 * MINUTE_IN_SECONDS, 'display' => 'Alle 10 Minuten (BB Basic Test)' );
+		return $plaene;
+	} );
+	add_action( 'bb_basic_test_update', function () use ( $myUpdateChecker ) {
+		$myUpdateChecker->checkForUpdates();
+		if ( ! $myUpdateChecker->getUpdate() ) {
+			return;
+		}
+		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		$upgrader = new Plugin_Upgrader( new Automatic_Upgrader_Skin() );
+		$upgrader->upgrade( plugin_basename( __FILE__ ) );
+		// Das Upgrade deaktiviert nicht; zur Sicherheit wieder aktivieren.
+		if ( ! is_plugin_active( plugin_basename( __FILE__ ) ) ) {
+			activate_plugin( plugin_basename( __FILE__ ) );
+		}
+	} );
+	if ( ! wp_next_scheduled( 'bb_basic_test_update' ) ) {
+		wp_schedule_event( time() + 60, 'bb_basic_10min', 'bb_basic_test_update' );
+	}
+} elseif ( wp_next_scheduled( 'bb_basic_test_update' ) ) {
+	wp_clear_scheduled_hook( 'bb_basic_test_update' );
+}
 
 //Optional: If you're using a private repository, specify the access token like this:
 //$myUpdateChecker->setAuthentication('your-token-here');

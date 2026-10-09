@@ -32,7 +32,7 @@
             <h3>BB Basic</h3>
             <?php $code_sync_header = get_file_data( CODE_SYNC_PLUGIN_FILE, array( 'Version' => 'Version' ) ); ?>
             <p class="version-number"><?php echo esc_html( $code_sync_header['Version'] ); ?></p>
-            <p>Update-Kanal: <?php echo 'main' === CODE_SYNC_UPDATE_BRANCH ? 'Test (main)' : 'Live (live)'; ?></p>
+            <p>Update-Kanal: <?php echo esc_html( 'live' === CODE_SYNC_UPDATE_BRANCH ? 'Live (live)' : 'Test (' . CODE_SYNC_UPDATE_BRANCH . ')' ); ?></p>
         </div>
     </div>
     <?php if ( $this->is_bueroblanko_user() ) : ?>

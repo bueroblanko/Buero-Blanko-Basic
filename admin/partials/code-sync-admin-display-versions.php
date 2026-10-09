@@ -34,5 +34,13 @@
             <p class="version-number"><?php echo esc_html( $code_sync_header['Version'] ); ?></p>
             <p>Update-Kanal: <?php echo 'main' === CODE_SYNC_UPDATE_BRANCH ? 'Test (main)' : 'Live (live)'; ?></p>
         </div>
+        <?php if ( $this->is_bueroblanko_user() ) : ?>
+        <div class="version-card">
+            <h3>Developer-Modus</h3>
+            <?php foreach ( Code_Sync_Developer_Modus::anzeige() as $code_sync_zeile ) : ?>
+            <p><?php echo esc_html( $code_sync_zeile ); ?></p>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
    

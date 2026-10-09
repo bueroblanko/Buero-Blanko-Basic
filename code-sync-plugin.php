@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.17.5
+ * Version:           0.0.17.6
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -148,6 +148,20 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 $code_sync_zweig = 'live';
 if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
 	$code_sync_zweig = 'main';
+	// Nur Testseiten: PHP-Fehler in wp-content/bb-basic-log/fehler.log schreiben, auch
+	// wenn WP_DEBUG aus ist. Der Ordner ist fuer Besucher gesperrt.
+	$code_sync_log = WP_CONTENT_DIR . '/bb-basic-log';
+	if ( ! is_dir( $code_sync_log ) && wp_mkdir_p( $code_sync_log ) ) {
+		file_put_contents( $code_sync_log . '/.htaccess', "Require all denied\nDeny from all\n" );
+		file_put_contents( $code_sync_log . '/index.php', "<?php\n// Silence is golden.\n" );
+	}
+	if ( is_dir( $code_sync_log ) ) {
+		if ( file_exists( $code_sync_log . '/fehler.log' ) && filesize( $code_sync_log . '/fehler.log' ) > 1048576 ) {
+			@unlink( $code_sync_log . '/fehler.log' );
+		}
+		ini_set( 'log_errors', '1' );
+		ini_set( 'error_log', $code_sync_log . '/fehler.log' );
+	}
 	// Eine Test-ZIP kann eine Datei zweig.txt mitbringen. Sie wird gemerkt, weil das
 	// naechste Update von GitHub sie nicht mehr enthaelt.
 	$code_sync_zweig_datei = plugin_dir_path( __FILE__ ) . 'zweig.txt';

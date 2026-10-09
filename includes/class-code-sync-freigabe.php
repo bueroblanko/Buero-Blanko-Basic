@@ -436,8 +436,10 @@ class Code_Sync_Freigabe {
 
 	public static function verwerfen( $entwurf ) {
 		$original = (int) get_post_meta( $entwurf, self::ENTWURF_VON, true );
-		wp_delete_post( $entwurf, true );
-		self::protokoll( 'Entwurf verworfen', $original, $entwurf );
+		self::$intern = true;
+		wp_trash_post( $entwurf );
+		self::$intern = false;
+		self::protokoll( 'Entwurf verworfen (Papierkorb)', $original, $entwurf );
 		return '';
 	}
 
@@ -719,13 +721,13 @@ class Code_Sync_Freigabe {
 		exit;
 	}
 
-	private static function knopf( $was, $id, $text, $klasse = 'button', $frage = '' ) {
+	private static function knopf( $was, $id, $text, $klasse = 'button' ) {
 		$html  = '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
 		$html .= wp_nonce_field( 'bb_freigabe', '_wpnonce', true, false );
 		$html .= '<input type="hidden" name="action" value="bb_freigabe">';
 		$html .= '<input type="hidden" name="was" value="' . esc_attr( $was ) . '">';
 		$html .= '<input type="hidden" name="id" value="' . (int) $id . '">';
-		$html .= '<button type="submit" class="' . esc_attr( $klasse ) . '"' . ( $frage ? ' onclick="return confirm(' . esc_attr( wp_json_encode( $frage ) ) . ');"' : '' ) . '>' . esc_html( $text ) . '</button>';
+		$html .= '<button type="submit" class="' . esc_attr( $klasse ) . '">' . esc_html( $text ) . '</button>';
 		return $html . '</form> ';
 	}
 
@@ -750,7 +752,7 @@ class Code_Sync_Freigabe {
 		if ( ! $entwuerfe ) {
 			echo '<p>Keine offenen Entwürfe.</p>';
 		} else {
-			echo '<table class="widefat striped"><thead><tr><th>Seite</th><th>Stand</th><th>Änderung</th><th>Aktionen</th></tr></thead><tbody>';
+			echo '<table class="widefat striped"><thead><tr><th>Seite</th><th>Stand</th><th>Notiz</th><th>Aktionen</th></tr></thead><tbody>';
 			foreach ( $entwuerfe as $entwurf ) {
 				$original  = (int) get_post_meta( $entwurf->ID, self::ENTWURF_VON, true );
 				$angefragt = (int) get_post_meta( $entwurf->ID, self::ANGEFRAGT, true );
@@ -764,11 +766,11 @@ class Code_Sync_Freigabe {
 				echo '<a class="button" href="' . esc_url( get_preview_post_link( $entwurf ) ) . '" target="_blank">Vorschau</a> ';
 				echo '<a class="button" href="' . esc_url( get_edit_post_link( $entwurf->ID ) ) . '">Bearbeiten</a> ';
 				if ( $konflikt ) {
-					echo self::knopf( 'trotzdem', $entwurf->ID, 'Trotzdem freigeben', 'button button-primary', 'Die Live-Seite wurde seit dem Entwurf geändert. Trotzdem überschreiben?' ); // phpcs:ignore WordPress.Security.EscapeOutput
+					echo self::knopf( 'trotzdem', $entwurf->ID, 'Trotzdem freigeben', 'button button-primary' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				} else {
-					echo self::knopf( 'freigeben', $entwurf->ID, 'Freigeben', 'button button-primary', 'Entwurf auf die Live-Seite übernehmen?' ); // phpcs:ignore WordPress.Security.EscapeOutput
+					echo self::knopf( 'freigeben', $entwurf->ID, 'Freigeben', 'button button-primary' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				}
-				echo self::knopf( 'verwerfen', $entwurf->ID, 'Verwerfen', 'button', 'Entwurf löschen? Die Live-Seite bleibt unverändert.' ); // phpcs:ignore WordPress.Security.EscapeOutput
+				echo self::knopf( 'verwerfen', $entwurf->ID, 'Verwerfen', 'button' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				echo '</td></tr>';
 			}
 			echo '</tbody></table>';
@@ -783,7 +785,7 @@ class Code_Sync_Freigabe {
 			foreach ( array_slice( $eintraege, 0, 50 ) as $eintrag ) {
 				echo '<tr><td>' . esc_html( wp_date( 'd.m.Y H:i', $eintrag['zeit'] ) ) . '</td><td>' . esc_html( $eintrag['titel'] ) . '</td><td>' . esc_html( $eintrag['aktion'] ) . '</td><td>' . esc_html( $eintrag['wer'] ) . '</td><td>';
 				if ( $eintrag['sicherung'] && self::SICHERUNG === get_post_status( $eintrag['sicherung'] ) ) {
-					echo self::knopf( 'zuruecksetzen', $eintrag['sicherung'], 'Rückgängig', 'button', 'Live-Seite auf den Stand vor diesem Vorgang zurücksetzen?' ); // phpcs:ignore WordPress.Security.EscapeOutput
+					echo self::knopf( 'zuruecksetzen', $eintrag['sicherung'], 'Rückgängig', 'button' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				}
 				echo '</td></tr>';
 			}

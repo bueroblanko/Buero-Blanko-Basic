@@ -29,9 +29,13 @@ class Code_Sync_Developer_Modus {
 	const SCHALTER      = 'bb-developer-modus.php';
 	const MODUL_ORDNER  = 'bb-basic-modul';
 	const MANIFEST_URL  = 'https://bbkd.de/module/novamira/manifest.json';
-	// Oeffentlicher Ed25519-Schluessel (base64). Der private Schluessel liegt nur auf Philipps Mac.
+	// Oeffentliche Ed25519-Schluessel (base64). Eine Signatur mit einem davon reicht.
+	// Erster: Update-Job auf dem VPS. Zweiter: Notfallschluessel auf Philipps Mac.
 	// Leer = es wird nichts nachgeladen.
-	const PUBLIC_KEY    = 'L1UT2jysxP1ulgzkHe0flHBt37sR3vZvs+HQl8az8s4=';
+	const PUBLIC_KEYS   = array(
+		'/JMncVpXYlj2eRvvNfMkVU+L0q8yIK2hg7pu3i4LFDM=',
+		'L1UT2jysxP1ulgzkHe0flHBt37sR3vZvs+HQl8az8s4=',
+	);
 	const OPTION        = 'code_sync_devmodus';
 	const CRON          = 'code_sync_devmodus_holen';
 	const CRON_WEG      = 'code_sync_devmodus_aufraeumen';
@@ -372,7 +376,7 @@ class Code_Sync_Developer_Modus {
 	}
 
 	private static function modul_holen_intern( $status ) {
-		if ( '' === self::PUBLIC_KEY ) {
+		if ( empty( self::PUBLIC_KEYS ) ) {
 			return 'Kein Signaturschluessel eingetragen.';
 		}
 
@@ -462,15 +466,23 @@ class Code_Sync_Developer_Modus {
 			return false;
 		}
 		$signatur = base64_decode( $signatur_b64, true );
-		$schluessel = base64_decode( self::PUBLIC_KEY, true );
-		if ( false === $signatur || false === $schluessel || 64 !== strlen( $signatur ) || 32 !== strlen( $schluessel ) ) {
+		if ( false === $signatur || 64 !== strlen( $signatur ) ) {
 			return false;
 		}
-		try {
-			return sodium_crypto_sign_verify_detached( $signatur, $inhalt, $schluessel );
-		} catch ( Throwable $e ) {
-			return false;
+		foreach ( self::PUBLIC_KEYS as $schluessel_b64 ) {
+			$schluessel = base64_decode( $schluessel_b64, true );
+			if ( false === $schluessel || 32 !== strlen( $schluessel ) ) {
+				continue;
+			}
+			try {
+				if ( sodium_crypto_sign_verify_detached( $signatur, $inhalt, $schluessel ) ) {
+					return true;
+				}
+			} catch ( Throwable $e ) {
+				continue;
+			}
 		}
+		return false;
 	}
 
 	/**

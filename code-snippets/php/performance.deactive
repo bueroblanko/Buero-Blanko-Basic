@@ -15,7 +15,6 @@ function smartwp_remove_wp_block_library_css(){
  
 add_action( 'wp_enqueue_scripts', 'smartwp_remove_wp_block_library_css', 100 );
 
-//This has been syncronised 123//
 function wp_remove_scripts() {
 // check if user is admina
     if (current_user_can( 'update_core' )) {

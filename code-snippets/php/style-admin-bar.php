@@ -1,12 +1,12 @@
 <?php
 // 
 // <p>The code customizes the WordPress admin dashboard logo, adds a 'Support' link to the admin bar, and changes the admin bar's color.</p>
-function dashboard_logo() {
+function bb_admin_bar_logo() {
     echo '
         <style type="text/css">
 #wpadminbar #wp-admin-bar-wp-logo>.ab-item {
     padding: 0 7px;
-    background-image: url(' . plugin_dir_url(plugin_dir_path( __FILE__ ) ) . 'includes/img/logo-bildmarke-weiss-freiraum.webp) !important;
+    background-image: url(' . esc_url( plugins_url( 'includes/img/logo-bildmarke-weiss-freiraum.webp', CODE_SYNC_PLUGIN_FILE ) ) . ') !important;
     background-size: 70%;
     background-position: center;
     background-repeat: no-repeat;
@@ -37,12 +37,12 @@ function dashboard_logo() {
         </style>
     ';
 }
-add_action('wp_before_admin_bar_render', 'dashboard_logo');
+add_action('wp_before_admin_bar_render', 'bb_admin_bar_logo');
 
 
 
 // customize admin bar css
-function override_admin_bar_css() { 
+function bb_admin_bar_css() { 
 
    if ( is_admin_bar_showing() ) { ?>
 
@@ -58,7 +58,7 @@ function override_admin_bar_css() {
 }
 
 // on backend area
-add_action( 'admin_head', 'override_admin_bar_css' );
+add_action( 'admin_head', 'bb_admin_bar_css' );
 
 // on frontend area
-add_action( 'wp_head', 'override_admin_bar_css' );	
+add_action( 'wp_head', 'bb_admin_bar_css' );	

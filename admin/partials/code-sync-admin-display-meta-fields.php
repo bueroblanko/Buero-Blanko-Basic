@@ -49,7 +49,7 @@ if (CODE_SYNC_ADD_META_TAGS){
 }
 
 else {
-    echo "<p>Some plugins that interfere with our plugin are active</p>";
+    echo "<p>Ein SEO-Plugin ist aktiv und gibt die Meta-Tags aus. BB Basic gibt deshalb keine eigenen aus.</p>";
 }
 
 ?>

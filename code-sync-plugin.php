@@ -15,8 +15,8 @@
  * @wordpress-plugin
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
- * Description:       to sync all code snippets across client sites
- * Version:           0.0.13
+ * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten.
+ * Version:           0.0.14
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -36,9 +36,19 @@ if ( ! defined( 'WPINC' ) ) {
  */
 define( 'CODE_SYNC_VERSION', '1.0.0' );
 define('CODE_SYNC_ALLOWED_MAIL', 'bueroblanko.de');
+define( 'CODE_SYNC_PLUGIN_FILE', __FILE__ );
 
 // check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
-$plugs = ['wpmu-dev-seo/wpmu-dev-seo.php','smartcrawl-seo/wpmu-dev-seo.php', 'wordpress-seo/wp-seo.php', 'all-in-one-seo-pack/all_in_one_seo_pack.php'];
+$plugs = [
+	'wpmu-dev-seo/wpmu-dev-seo.php',                      // SmartCrawl (alt)
+	'smartcrawl-seo/wpmu-dev-seo.php',                    // SmartCrawl
+	'wordpress-seo/wp-seo.php',                           // Yoast
+	'all-in-one-seo-pack/all_in_one_seo_pack.php',        // AIOSEO
+	'all-in-one-seo-pack-pro/all_in_one_seo_pack.php',    // AIOSEO Pro
+	'seo-by-rank-math/rank-math.php',                     // Rank Math
+	'wp-seopress/seopress.php',                           // SEOPress
+	'autodescription/autodescription.php',                // The SEO Framework
+];
 if ( ! function_exists( 'is_plugin_active' ) ) {
     require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
@@ -72,6 +82,19 @@ function deactivate_code_sync() {
 }
 
 register_activation_hook( __FILE__, 'activate_code_sync' );
+
+// Die Meta-Tag-Tabelle wird nur beim Aktivieren angelegt. Bei Updates per
+// Auto-Update oder ZIP-Austausch laeuft der Aktivierungs-Hook nicht, deshalb
+// hier einmalig nachholen.
+function code_sync_maybe_create_table() {
+	if ( get_option( 'code_sync_db_version' ) === '1' ) {
+		return;
+	}
+	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-activator.php';
+	Code_Sync_Activator::activate();
+	update_option( 'code_sync_db_version', '1' );
+}
+add_action( 'plugins_loaded', 'code_sync_maybe_create_table' );
 register_deactivation_hook( __FILE__, 'deactivate_code_sync' );
 
 
@@ -169,7 +192,7 @@ function codesync_yw_add_media_custom_field( $form_fields, $post )
 
     return $form_fields;
 }
-add_filter( 'attachment_fields_to_edit', 'codesync_yw_add_media_custom_field', null, 11 );
+add_filter( 'attachment_fields_to_edit', 'codesync_yw_add_media_custom_field', 10, 2 );
 
 
 /**
@@ -250,11 +273,11 @@ function codesync_yw_show_stockresources()
 
             $ret .= '<tr>';
             $ret .= '<td>'. wp_get_attachment_image( $stock->ID ) .'</td>';
-            $ret .= '<td>'. $resource .'</td>';
+            $ret .= '<td>'. esc_html( $resource ) .'</td>';
             
             if ( !empty( $url ) )
             {
-                $ret .= '<td><a href="'. $url .'" target="_blank" rel="nofollow noopener noreferrer">Quelle öffnen</a></td>';
+                $ret .= '<td><a href="'. esc_url( $url ) .'" target="_blank" rel="nofollow noopener noreferrer">Quelle öffnen</a></td>';
             }
             else
             {
@@ -296,10 +319,10 @@ function codesync_yw_show_single_resource( $atts )
         
         if ( !empty( $url ) )
         {
-            $return .= '<a href="'. $url .'" rel="nofollow noopener noreferrer" target="_blank">';
+            $return .= '<a href="'. esc_url( $url ) .'" rel="nofollow noopener noreferrer" target="_blank">';
         }
         
-        $return .= $rescource;
+        $return .= esc_html( $rescource );
         
         if ( !empty( $url ) )
         {

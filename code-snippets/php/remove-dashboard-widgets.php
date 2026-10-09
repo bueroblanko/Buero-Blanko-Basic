@@ -3,7 +3,7 @@
 // <p>The code removes various widgets from the WordPress dashboard.</p>
 //REMOVE DASHBOARD WIDGETS
 
-function remove_dashboard_widgets () {
+function bb_remove_dashboard_widgets () {
 
 
   remove_meta_box('dashboard_quick_press','dashboard','side'); //Quick Press widget
@@ -21,4 +21,4 @@ function remove_dashboard_widgets () {
 
 }
 
-add_action('wp_dashboard_setup', 'remove_dashboard_widgets');
+add_action('wp_dashboard_setup', 'bb_remove_dashboard_widgets');

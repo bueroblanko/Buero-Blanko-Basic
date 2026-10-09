@@ -25,7 +25,7 @@
  * @since      1.0.0
  * @package    Code_Sync
  * @subpackage Code_Sync/includes
- * @author     Ilyes <test@test.com>
+ * @author     Büro Blanko Medien GmbH <info@bueroblanko.de>
  */
 class Code_Sync {
 
@@ -75,7 +75,6 @@ class Code_Sync {
 		$this->plugin_name = 'code-sync';
 
 		$this->load_dependencies();
-		//$this->set_locale();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 
@@ -87,7 +86,6 @@ class Code_Sync {
 	 * Include the following files that make up the plugin:
 	 *
 	 * - Code_Sync_Loader. Orchestrates the hooks of the plugin.
-	 * - Code_Sync_i18n. Defines internationalization functionality.
 	 * - Code_Sync_Admin. Defines all hooks for the admin area.
 	 * - Code_Sync_Public. Defines all hooks for the public side of the site.
 	 *
@@ -106,12 +104,6 @@ class Code_Sync {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-code-sync-loader.php';
 
 		/**
-		 * The class responsible for defining internationalization functionality
-		 * of the plugin.
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-code-sync-i18n.php';
-
-		/**
 		 * The class responsible for defining all actions that occur in the admin area.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-code-sync-admin.php';
@@ -123,23 +115,6 @@ class Code_Sync {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/class-code-sync-public.php';
 
 		$this->loader = new Code_Sync_Loader();
-
-	}
-
-	/**
-	 * Define the locale for this plugin for internationalization.
-	 *
-	 * Uses the Code_Sync_i18n class in order to set the domain and to register the hook
-	 * with WordPress.
-	 *
-	 * @since    1.0.0
-	 * @access   private
-	 */
-	private function set_locale() {
-
-		$plugin_i18n = new Code_Sync_i18n();
-
-		$this->loader->add_action( 'plugins_loaded', $plugin_i18n, 'load_plugin_textdomain' );
 
 	}
 
@@ -158,28 +133,7 @@ class Code_Sync {
 		$this->loader->add_action ('admin_menu', $plugin_admin, 'register_admin_page');
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
-		$existLayout = get_posts(
-		[
-
-			'post_type'   => 'et_pb_layout',
-			'post_status' => 'publish',
-			'showposts'   => 1,
-			'tax_query'   =>
-
-			[
-				[
-
-				'taxonomy' => 'layout_type',
-				'terms'    => 'layout',
-				'field'    => 'slug',
-
-				]
-			]]
-		);
-
-		if ( count( $existLayout ) < 1 ) {
-			$this->loader->add_filter('admin_body_class' , $plugin_admin, 'add_admin_body_class' );
-		};
+		$this->loader->add_filter( 'admin_body_class', $plugin_admin, 'add_admin_body_class' );
 	}
 
 	/**
@@ -205,29 +159,32 @@ class Code_Sync {
 		$this->loader->add_action( 'plugins_loaded', $plugin_public, 'execute_code_snippets' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'load_js_snippets' );
 
-		$existLayout = get_posts(
-		[
+		$this->loader->add_filter( 'body_class', $plugin_public, 'add_body_class' );
 
-			'post_type'   => 'et_pb_layout',
-			'post_status' => 'publish',
-			'showposts'   => 1,
-			'tax_query'   =>
+	}
 
-			[
-				[
-
-				'taxonomy' => 'layout_type',
-				'terms'    => 'layout',
-				'field'    => 'slug',
-
-				]
-			]]
-		);
-
-		if ( count( $existLayout ) < 1 ) {
-			$this->loader->add_filter('body_class' , $plugin_public, 'add_body_class' );
-		};
-
+	/**
+	 * Gibt es veroeffentlichte Layouts in der Divi-Bibliothek? Davon haengt die
+	 * Klasse no-et-layouts ab, die die leere Bibliothek im Builder ausblendet.
+	 * Wird erst beim Ausgeben der Body-Klassen abgefragt, weil Divi die
+	 * Taxonomie layout_type vorher noch nicht registriert hat.
+	 */
+	public static function has_divi_layouts() {
+		static $result = null;
+		if ( $result === null ) {
+			$result = count( get_posts( [
+				'post_type'   => 'et_pb_layout',
+				'post_status' => 'publish',
+				'numberposts' => 1,
+				'fields'      => 'ids',
+				'tax_query'   => [ [
+					'taxonomy' => 'layout_type',
+					'terms'    => 'layout',
+					'field'    => 'slug',
+				] ],
+			] ) ) > 0;
+		}
+		return $result;
 	}
 
 	/**

@@ -1,13 +1,13 @@
 <?php
 // <p>BB Login Restyling</p>
 // Customize the WordPress login form
-function my_custom_login_styles() {
+function bb_login_styles() {
     ?>
     <style type="text/css">
 
         /* Replace WordPress logo and link to custom site */
         #login h1 a {
-            background: url(<?php echo plugin_dir_url( plugin_dir_path( __FILE__ ) ) .'includes/img/bb-logo.svg' ?>) no-repeat center center;
+            background: url(<?php echo esc_url( plugins_url( 'includes/img/bb-logo.svg', CODE_SYNC_PLUGIN_FILE ) ) ?>) no-repeat center center;
             width: 50px; /* Width to match the standard WordPress logo */
             height: 50px; /* Height to match the standard WordPress logo */
             background-size: contain;
@@ -76,4 +76,4 @@ function my_custom_login_styles() {
     </style>
     <?php
 }
-add_action('login_head', 'my_custom_login_styles');
+add_action('login_head', 'bb_login_styles');

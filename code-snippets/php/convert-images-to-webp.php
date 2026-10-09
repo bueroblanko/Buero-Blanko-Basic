@@ -21,13 +21,13 @@
  * Optional Configuration:
  * - By default, the original image file is deleted after conversion to WebP.
  *   If you prefer to keep the original image file, simply comment out or remove
- *   the line '@unlink( $file_path );' in the wpturbo_handle_upload_convert_to_webp function.
+ *   the line '@unlink( $file_path );' in the bb_convert_upload_to_webp function.
  *   This will preserve the original uploaded image file alongside the WebP version.
  */
  
-add_filter('wp_handle_upload', 'wpturbo_handle_upload_convert_to_webp');
+add_filter('wp_handle_upload', 'bb_convert_upload_to_webp');
  
-function wpturbo_handle_upload_convert_to_webp($upload) {
+function bb_convert_upload_to_webp($upload) {
     if ($upload['type'] == 'image/jpeg' || $upload['type'] == 'image/png' || $upload['type'] == 'image/gif') {
         $file_path = $upload['file'];
  

@@ -18,11 +18,11 @@
  *
  * @package    Code_Sync
  * @subpackage Code_Sync/public
- * @author     Ilyes <test@test.com>
+ * @author     Büro Blanko Medien GmbH <info@bueroblanko.de>
  */
 
 if (! defined('CODE_SYNC_ALLOWED_MAIL')) {
-	die('Bruh!');
+	die;
 }
 class Code_Sync_Public {
 
@@ -65,30 +65,10 @@ class Code_Sync_Public {
 	 */
 	public function enqueue_styles() {
 
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Code_Sync_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Code_Sync_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
-		// add_action('wp_head', 'my_custom_wp_head_function');
-
-		// function my_custom_wp_head_function() {
-		// 	$f  =  plugin_dir_path(__FILE__) . 'code-snippets/';
-		// 	$snippets_dir =  plugin_dir_path(__FILE__) . 'code-snippets/';
-		// 	foreach (glob($snippets_dir . "*.php") as $file) {
-		// 			$f.=  $file . "\n";
-		// 		}
-		// 	echo '<!-- ' . $f . ' -->';
-		// }
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/code-sync-public.css', array(), $this->version, 'all' );
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		// Divi-Layout-Sperre nur fuer angemeldete Nutzer ausserhalb von Buero Blanko,
+		// Besucher ohne Login koennen den Builder ohnehin nicht oeffnen
+		if ( is_user_logged_in() && ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_style( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'css/code-sync-public-disable-divi-layouts.css', array( ), $this->version, 'all' );
 		}
 	}
@@ -100,26 +80,17 @@ class Code_Sync_Public {
 	 */
 	public function enqueue_scripts() {
 
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Code_Sync_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Code_Sync_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
-
-		//wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-public.js', array( 'jquery' ), $this->version, false );
-		// check if the user email ends with buerobronko , if not enqueue a script
-		if (defined('ADMIN_MAIL'))
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		if ( is_user_logged_in() && ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_script( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'js/code-sync-public-disable-divi-layouts.js', array( 'jquery' ), $this->version, true );
 		}
 	
+	}
+
+	/** Ist der angemeldete Nutzer ein Buero-Blanko-Konto (Mail endet auf @bueroblanko.de)? */
+	public function is_bueroblanko_user() {
+		$email = strtolower( (string) $this->get_current_user_email() );
+		$suffix = '@' . CODE_SYNC_ALLOWED_MAIL;
+		return $email !== '' && substr( $email, -strlen( $suffix ) ) === $suffix;
 	}
 
 	public function get_current_user_email() {
@@ -132,41 +103,42 @@ class Code_Sync_Public {
 
 	public function execute_code_snippets() {
 		$snippets_dir = plugin_dir_path(__FILE__) . '../code-snippets/php/';
-		
-		// Check if directory exists and is readable
-		if (is_dir($snippets_dir) && is_readable($snippets_dir)) {
-			$snippets = glob($snippets_dir . "*.php");
-			
-			if (!empty($snippets)) {
-				foreach ($snippets as $file) {
-					// Error handling to avoid fatal errors if a snippet has an issue
-					try {
-						$code = file_get_contents($file);
-						$l = 1;
-						//$code = str_replace('<?php', "", $code, $l);
-						$code = preg_replace('/^<\?php/', '', $code);
-						ob_start();
 
-						try {
-							$result = eval( $code );
-						} catch ( ParseError $parse_error ) {
-							$result = $parse_error;
-						}
-
-						ob_end_clean();
-					} catch (Exception $e) {
-						//error_log('Error executing snippet: ' . $file . ' - ' . $e->getMessage());
-					}
-				}
-			} else {
-				//error_log('No PHP snippets found in ' . $snippets_dir);
-			}
-		} else {
-			//error_log('Snippets directory not found or not readable: ' . $snippets_dir);
+		if (!is_dir($snippets_dir) || !is_readable($snippets_dir)) {
+			return;
 		}
 
+		$snippets = glob($snippets_dir . "*.php");
+		if (empty($snippets)) {
+			return;
+		}
+
+		foreach ($snippets as $file) {
+			if (basename($file) === 'index.php') {
+				continue;
+			}
+
+			$code = file_get_contents($file);
+			if ($code === false) {
+				continue;
+			}
+			$code = preg_replace('/^<\?php/', '', $code);
+
+			// Throwable faengt auch Laufzeitfehler (Error, TypeError) ab, damit ein
+			// defektes Snippet nicht die ganze Seite lahmlegt. Doppelt deklarierte
+			// Funktionen lassen sich so nicht abfangen, deshalb tragen alle
+			// Snippet-Funktionen das Praefix bb_.
+			ob_start();
+			try {
+				eval($code);
+			} catch (Throwable $e) {
+				error_log('BB Basic: Snippet ' . basename($file) . ' fehlgeschlagen: ' . $e->getMessage());
+			} finally {
+				ob_end_clean();
+			}
+		}
 	}
-	
+
 	public function add_meta_tags () {
 		if (!defined('CODE_SYNC_ADD_META_TAGS') || !CODE_SYNC_ADD_META_TAGS){
 			return;
@@ -175,9 +147,15 @@ class Code_Sync_Public {
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
 		$old_row = $wpdb->get_row("SELECT * FROM $table_name ORDER BY id DESC LIMIT 1");
-		$site_url = get_site_url();
-		$domain = str_replace( 'http://', '', $site_url);
-		$domain = str_replace( 'https://', '', $domain);
+		// og:url ist die Adresse der aktuellen Seite, nicht immer die Startseite
+		global $wp;
+		if ( is_singular() ) {
+			$site_url = get_permalink();
+		} else {
+			$site_url = home_url( empty( $wp->request ) ? '/' : user_trailingslashit( $wp->request ) );
+		}
+		$site_url = esc_url( $site_url );
+		$domain = esc_attr( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
 
 		$title = isset($old_row->title) ? esc_attr($old_row->title) : '';
 		$keywords = isset($old_row->keywords) ? esc_attr($old_row->keywords) : '';
@@ -230,28 +208,22 @@ EOT;
 		echo $result;
 	}
 
-	public function load_js_snippets(){
-		
-
-		$snippets_dir = plugin_dir_url(__FILE__) . 'js/';
-			
-			if (is_dir(plugin_dir_path(__FILE__) . 'js/')) {
-				$snippets = glob(plugin_dir_path(__FILE__) . 'js/*.js');
-				
-				if (!empty($snippets)) {
-					foreach ($snippets as $file) {
-						$filename = basename($file);
-						wp_enqueue_script($filename, $snippets_dir . $filename, array('jquery'), null, true);
-					}
-				}
-			}
+	public function load_js_snippets() {
+		$snippets_dir = plugin_dir_path( __FILE__ ) . '../code-snippets/js/';
+		$snippets = glob( $snippets_dir . '*.js' );
+		if ( empty( $snippets ) ) {
+			return;
+		}
+		foreach ( $snippets as $file ) {
+			$filename = basename( $file );
+			wp_enqueue_script( $filename, plugins_url( 'code-snippets/js/' . $filename, CODE_SYNC_PLUGIN_FILE ), array( 'jquery' ), null, true );
+		}
 	}
 
-	public function add_body_class ($classes) {
-		$classes[] = 'no-et-layouts';
-
+	public function add_body_class( $classes ) {
+		if ( ! Code_Sync::has_divi_layouts() ) {
+			$classes[] = 'no-et-layouts';
+		}
 		return $classes;
-
-		
 	}
 }

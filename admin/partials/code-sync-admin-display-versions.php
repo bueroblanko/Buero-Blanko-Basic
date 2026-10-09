@@ -14,7 +14,7 @@
 ?>
 
 <div class="wrap">
-    <h1>Code Sync Settings</h1>
+    <h1>BB Basic</h1>
     <div class="plugin-version-info">
         <div class="version-card">
             <h3>PHP Version</h3>

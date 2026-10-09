@@ -6,9 +6,10 @@
  * wp-content/bb-developer-modus.php liegt. Ohne Datei passiert nichts.
  *
  * Schalter-Datei (erste Zeile <?php exit; ?>, dann je Zeile schluessel=wert):
- *   stufe=build|live|sleep   build = alles erlaubt, live = nur lesende Werkzeuge,
- *                            sleep = Modul bleibt liegen, wird aber nicht geladen
- * Ohne Schalter-Datei wird ein vorhandenes Modul geloescht.
+ *   stufe=build|live|sleep|clear
+ *                            build = alles erlaubt, live = nur lesende Werkzeuge,
+ *                            sleep = Modul bleibt liegen, wird aber nicht geladen,
+ *                            clear = Modul wird geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
  *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro
  *
@@ -61,9 +62,14 @@ class Code_Sync_Developer_Modus {
 	 */
 	public static function start() {
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
-		if ( ! file_exists( $datei ) ) {
+		$clear = ! file_exists( $datei );
+		if ( ! $clear ) {
+			self::$zustand = self::schalter_lesen( $datei );
+			$clear = 'clear' === self::$zustand['stufe'];
+		}
+		if ( $clear ) {
 			// Normalfall auf allen Seiten. Liegt noch ein Modul von frueher, wird es geloescht.
-			self::$zustand = array( 'stufe' => 'aus' );
+			self::$zustand = array( 'stufe' => 'clear' );
 			if ( is_dir( self::modul_pfad() ) ) {
 				add_action( self::CRON_WEG, array( __CLASS__, 'modul_loeschen' ) );
 				if ( ! wp_next_scheduled( self::CRON_WEG ) ) {
@@ -76,7 +82,6 @@ class Code_Sync_Developer_Modus {
 			return;
 		}
 
-		self::$zustand = self::schalter_lesen( $datei );
 		add_action( self::CRON, array( __CLASS__, 'modul_holen' ) );
 
 		if ( 'sleep' === self::$zustand['stufe'] ) {
@@ -125,7 +130,7 @@ class Code_Sync_Developer_Modus {
 		}
 
 		$stufe = isset( $werte['stufe'] ) ? strtolower( $werte['stufe'] ) : 'sleep';
-		if ( ! in_array( $stufe, array( 'build', 'live', 'sleep' ), true ) ) {
+		if ( ! in_array( $stufe, array( 'build', 'live', 'sleep', 'clear' ), true ) ) {
 			$stufe = 'sleep';
 		}
 
@@ -143,7 +148,7 @@ class Code_Sync_Developer_Modus {
 			'lizenz' => isset( $werte['lizenz'] ) ? $werte['lizenz'] : '',
 			'grund'  => '',
 		);
-		if ( 'sleep' !== $stufe && time() > $bis ) {
+		if ( in_array( $stufe, array( 'build', 'live' ), true ) && time() > $bis ) {
 			$zustand['stufe'] = 'sleep';
 			$zustand['grund'] = 'Abgelaufen am ' . gmdate( 'd.m.Y', $bis ) . '. Zum Verlaengern die Schalter-Datei neu hochladen.';
 		}
@@ -331,7 +336,8 @@ class Code_Sync_Developer_Modus {
 	 * Cron: Schalter-Datei ist weg, also Modul und Stand loeschen. Danach liegt kein Novamira-Code mehr auf der Seite.
 	 */
 	public static function modul_loeschen() {
-		if ( file_exists( WP_CONTENT_DIR . '/' . self::SCHALTER ) ) {
+		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
+		if ( file_exists( $datei ) && 'clear' !== self::schalter_lesen( $datei )['stufe'] ) {
 			return;
 		}
 		require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -459,16 +465,16 @@ class Code_Sync_Developer_Modus {
 	 * Daten fuer die Karte unter Werkzeuge → BB Basic.
 	 */
 	public static function anzeige() {
-		$zustand = self::$zustand ? self::$zustand : array( 'stufe' => 'aus' );
+		$zustand = self::$zustand ? self::$zustand : array( 'stufe' => 'clear' );
 		$status  = self::status();
 		$namen   = array(
-			'aus'   => 'Aus (keine Schalter-Datei)',
+			'clear' => 'Clear (kein Novamira auf der Seite)',
 			'sleep' => 'Sleep (Modul nicht geladen)',
 			'live'  => 'Live (nur lesend)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
 		$zeilen = array( $namen[ $zustand['stufe'] ] );
-		if ( 'aus' !== $zustand['stufe'] ) {
+		if ( 'clear' !== $zustand['stufe'] ) {
 			$zeilen[] = 'Gültig bis ' . wp_date( 'd.m.Y', $zustand['bis'] );
 			if ( $status['aktiv'] ) {
 				$zeilen[] = 'Novamira ' . $status['novamira'] . ', Pro ' . $status['pro'] . ( empty( $zustand['geladen'] ) ? ' (nicht geladen)' : ' (geladen)' );

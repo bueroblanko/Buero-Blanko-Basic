@@ -25,7 +25,8 @@ Releases und Tags spielen für die Verteilung keine Rolle.
 Eine Testseite kann statt `main` einem Entwicklungs-Branch folgen. Dafür zusätzlich in
 die `wp-config.php`: `define( 'BB_BASIC_TEST_ZWEIG', 'name-des-branches' );`
 Ohne FTP: Test-ZIP mit einer Datei `zweig.txt` (Inhalt: Branch-Name) im Plugin-Ordner
-im Backend hochladen. Die Seite merkt sich den Branch.
+im Backend hochladen (oder per FTP in den Plugin-Ordner legen). Die Seite merkt sich den
+Branch, und diese Wahl geht vor die Konstante in der `wp-config.php`.
 Testseiten sehen alle 10 Minuten nach und spielen neue Versionen sofort selbst ein.
 Jeder Push auf den Branch braucht eine höhere `Version:` (z. B. 0.0.16.1, 0.0.16.2),
 sonst sieht die Seite ihn nicht. Vor dem PR nach `main` die Version auf die nächste

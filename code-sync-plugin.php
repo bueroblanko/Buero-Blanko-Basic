@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.16.2
+ * Version:           0.0.16.3
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -143,8 +143,16 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 $code_sync_zweig = 'live';
 if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
 	$code_sync_zweig = 'main';
-	if ( defined( 'BB_BASIC_TEST_ZWEIG' ) && preg_match( '#^[A-Za-z0-9._/-]{1,100}$#', (string) BB_BASIC_TEST_ZWEIG ) ) {
-		$code_sync_zweig = BB_BASIC_TEST_ZWEIG;
+	// Eine Test-ZIP kann eine Datei zweig.txt mitbringen. Sie wird gemerkt, weil das
+	// naechste Update von GitHub sie nicht mehr enthaelt.
+	$code_sync_zweig_datei = plugin_dir_path( __FILE__ ) . 'zweig.txt';
+	if ( file_exists( $code_sync_zweig_datei ) ) {
+		update_option( 'code_sync_test_zweig', trim( (string) file_get_contents( $code_sync_zweig_datei ) ) );
+		@unlink( $code_sync_zweig_datei );
+	}
+	$code_sync_test_zweig = defined( 'BB_BASIC_TEST_ZWEIG' ) ? (string) BB_BASIC_TEST_ZWEIG : (string) get_option( 'code_sync_test_zweig', '' );
+	if ( preg_match( '#^[A-Za-z0-9._/-]{1,100}$#', $code_sync_test_zweig ) ) {
+		$code_sync_zweig = $code_sync_test_zweig;
 	}
 }
 define( 'CODE_SYNC_UPDATE_BRANCH', $code_sync_zweig );

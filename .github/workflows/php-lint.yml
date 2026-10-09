@@ -1,0 +1,17 @@
+name: PHP-Syntax
+
+on:
+  pull_request:
+  push:
+    branches: [main, live]
+
+jobs:
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: php -l auf alle PHP-Dateien
+        run: |
+          php -v
+          find . -name '*.php' -not -path './plugin-update-checker/*' -print0 \
+            | xargs -0 -n1 php -l

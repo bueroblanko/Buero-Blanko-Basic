@@ -1,16 +1,32 @@
 # Neue Version ausrollen
 
-Wichtig: Der Update-Checker liest die Datei `code-sync-plugin.php` direkt auf `main`.
-Steht dort im Header eine höhere `Version:` als installiert, bieten alle Kundenseiten
-das Update an und spielen es per Auto-Update ein. Ein Push auf `main` ist damit ein
-Rollout auf alle Seiten. Releases und Tags spielen für die Verteilung keine Rolle.
+Seit 0.0.15 gibt es zwei Update-Kanäle:
 
-1. Änderungen auf einem eigenen Branch machen, nie direkt auf `main`.
-2. `Version:` im Header von `code-sync-plugin.php` erhöhen.
-3. Jede geänderte PHP-Datei mit `php -l` prüfen (Snippets laufen per `eval()`).
-4. ZIP aus dem Branch bauen. Der Ordner im ZIP muss genauso heißen wie auf der
-   Testseite (`Buero-Blanko-Basic`), sonst legt WordPress eine zweite Kopie an.
-5. Auf der Testseite dev.bueroblanko.de unter Plugins → Plugin hochladen →
-   „Aktuelle Version ersetzen“ testen.
-6. Erst danach den Pull Request nach `main` mergen.
-7. Optional: Tag mit der Versionsnummer setzen, nur zur Nachvollziehbarkeit.
+- `main`: liest nur Testseiten. Testseite ist eine Seite mit dieser Zeile in der
+  `wp-config.php`: `define( 'BB_BASIC_UPDATE_KANAL', 'test' );`
+- `live`: lesen alle anderen Seiten.
+
+Der Update-Checker liest `code-sync-plugin.php` auf dem jeweiligen Branch. Steht dort
+eine höhere `Version:` als installiert, spielt die Seite das Update per Auto-Update ein.
+Releases und Tags spielen für die Verteilung keine Rolle.
+
+## Ablauf
+
+1. Änderung auf eigenem Branch, `Version:` im Header von `code-sync-plugin.php` erhöhen.
+2. Pull Request nach `main`. Die Prüfung „PHP-Syntax“ muss grün sein.
+3. PR mergen. Jetzt bekommen nur die Testseiten die neue Version.
+   Sofort statt nach bis zu 12 h: Dashboard → Aktualisierungen → „Erneut prüfen“.
+4. Auf dev.bueroblanko.de prüfen.
+5. Freigeben für alle: github.com → Pull requests → New pull request →
+   base `live`, compare `main` → Create pull request → Merge.
+
+## Fehler beheben
+
+WordPress spielt nur höhere Versionen ein. Einen Fehler mit einer neuen, höheren
+Version beheben, `live` nicht zurücksetzen.
+
+## Test-ZIP für eine einzelne Seite
+
+Der Ordner im ZIP muss genauso heißen wie auf der Seite (`Buero-Blanko-Basic`),
+sonst legt WordPress eine zweite Kopie an. Hochladen unter Plugins → Plugin
+hochladen → „Aktuelle Version durch hochgeladene Version ersetzen“.

@@ -39,6 +39,9 @@ function bb_admin_bar_logo() {
 }
 add_action('wp_before_admin_bar_render', 'bb_admin_bar_logo');
 
+// Website-Icon neben dem Seitennamen ausblenden (seit WordPress 6.9), BB-Logo links bleibt.
+add_filter( 'wp_admin_bar_show_site_icons', '__return_false' );
+
 
 
 // customize admin bar css

@@ -3,8 +3,8 @@
 // <p>The code changes the default WordPress admin dashboard footer link and text.</p>
 //CHANGE DASHBOARD FOOTER LINK
  
-function remove_footer_admin () 
+function bb_admin_footer_text () 
 {
     echo '<span id="footer-thankyou">Developed by <a href="https://www.bueroblanko.de" target="_blank">BÜRO BLANKO</a></span>';
 }
-add_filter('admin_footer_text', 'remove_footer_admin');
+add_filter('admin_footer_text', 'bb_admin_footer_text');

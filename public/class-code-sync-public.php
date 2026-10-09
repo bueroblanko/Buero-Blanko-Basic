@@ -132,41 +132,42 @@ class Code_Sync_Public {
 
 	public function execute_code_snippets() {
 		$snippets_dir = plugin_dir_path(__FILE__) . '../code-snippets/php/';
-		
-		// Check if directory exists and is readable
-		if (is_dir($snippets_dir) && is_readable($snippets_dir)) {
-			$snippets = glob($snippets_dir . "*.php");
-			
-			if (!empty($snippets)) {
-				foreach ($snippets as $file) {
-					// Error handling to avoid fatal errors if a snippet has an issue
-					try {
-						$code = file_get_contents($file);
-						$l = 1;
-						//$code = str_replace('<?php', "", $code, $l);
-						$code = preg_replace('/^<\?php/', '', $code);
-						ob_start();
 
-						try {
-							$result = eval( $code );
-						} catch ( ParseError $parse_error ) {
-							$result = $parse_error;
-						}
-
-						ob_end_clean();
-					} catch (Exception $e) {
-						//error_log('Error executing snippet: ' . $file . ' - ' . $e->getMessage());
-					}
-				}
-			} else {
-				//error_log('No PHP snippets found in ' . $snippets_dir);
-			}
-		} else {
-			//error_log('Snippets directory not found or not readable: ' . $snippets_dir);
+		if (!is_dir($snippets_dir) || !is_readable($snippets_dir)) {
+			return;
 		}
 
+		$snippets = glob($snippets_dir . "*.php");
+		if (empty($snippets)) {
+			return;
+		}
+
+		foreach ($snippets as $file) {
+			if (basename($file) === 'index.php') {
+				continue;
+			}
+
+			$code = file_get_contents($file);
+			if ($code === false) {
+				continue;
+			}
+			$code = preg_replace('/^<\?php/', '', $code);
+
+			// Throwable faengt auch Laufzeitfehler (Error, TypeError) ab, damit ein
+			// defektes Snippet nicht die ganze Seite lahmlegt. Doppelt deklarierte
+			// Funktionen lassen sich so nicht abfangen, deshalb tragen alle
+			// Snippet-Funktionen das Praefix bb_.
+			ob_start();
+			try {
+				eval($code);
+			} catch (Throwable $e) {
+				error_log('BB Basic: Snippet ' . basename($file) . ' fehlgeschlagen: ' . $e->getMessage());
+			} finally {
+				ob_end_clean();
+			}
+		}
 	}
-	
+
 	public function add_meta_tags () {
 		if (!defined('CODE_SYNC_ADD_META_TAGS') || !CODE_SYNC_ADD_META_TAGS){
 			return;

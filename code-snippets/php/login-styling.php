@@ -1,7 +1,7 @@
 <?php
 // <p>BB Login Restyling</p>
 // Customize the WordPress login form
-function my_custom_login_styles() {
+function bb_login_styles() {
     ?>
     <style type="text/css">
 
@@ -76,4 +76,4 @@ function my_custom_login_styles() {
     </style>
     <?php
 }
-add_action('login_head', 'my_custom_login_styles');
+add_action('login_head', 'bb_login_styles');

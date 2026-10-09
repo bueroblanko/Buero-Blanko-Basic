@@ -1,7 +1,7 @@
 <?php
 // 
 // <p>This code redirects the user from the about.php page to the WordPress dashboard.</p>
-function redirect_about_page_to_dashboard() {
+function bb_redirect_about_page() {
     // Überprüfen, ob der aktuelle Benutzer auf die about.php-Seite zugreift
     if (strpos($_SERVER['REQUEST_URI'], 'about.php') !== false) {
         // Die URL des WordPress-Dashboards
@@ -12,4 +12,4 @@ function redirect_about_page_to_dashboard() {
         exit; // Stelle sicher, dass das Skript nach der Umleitung beendet wird
     }
 }
-add_action('admin_init', 'redirect_about_page_to_dashboard');
+add_action('admin_init', 'bb_redirect_about_page');

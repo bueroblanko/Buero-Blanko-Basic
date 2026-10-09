@@ -4,24 +4,24 @@
 // SVG-Dateien können Schadcode (JavaScript) enthalten und werden hier nicht bereinigt.
 // Deshalb dürfen nur Nutzer mit "manage_options" (Administratoren) SVGs hochladen.
 // Bereits hochgeladene SVGs bleiben unverändert.
-	function def_svg_upload_allowed() {
+	function bb_svg_upload_allowed() {
 	  return function_exists( 'wp_get_current_user' ) && current_user_can( 'manage_options' );
 	}
-	function def_allow_svgimg_types($mimes) {
-	  if ( def_svg_upload_allowed() ) {
+	function bb_svg_mime_types($mimes) {
+	  if ( bb_svg_upload_allowed() ) {
 	    $mimes['svg'] = 'image/svg+xml';
 	  }
 	  return $mimes;
 	}
-	add_filter('upload_mimes', 'def_allow_svgimg_types');
+	add_filter('upload_mimes', 'bb_svg_mime_types');
 	add_filter( 'wp_check_filetype_and_ext', function($def_svg_filetype_ext_data, $file, $filename, $mimes) {
-		if ( substr($filename, -4) === '.svg' && def_svg_upload_allowed() ) {
+		if ( substr($filename, -4) === '.svg' && bb_svg_upload_allowed() ) {
 			$def_svg_filetype_ext_data['ext'] = 'svg';
 			$def_svg_filetype_ext_data['type'] = 'image/svg+xml';
 		}
 		return $def_svg_filetype_ext_data;
 	}, 100, 4 );
-	function def_common_svg_media_thumbnails($response, $attachment, $meta){
+	function bb_svg_media_thumbnails($response, $attachment, $meta){
 		if($response['type'] === 'image' && $response['subtype'] === 'svg+xml' && class_exists('SimpleXMLElement'))
 		{
 		  try {
@@ -48,5 +48,5 @@
 		}
 		return $response;
 	}
-	add_filter('wp_prepare_attachment_for_js', 'def_common_svg_media_thumbnails', 10, 3);
+	add_filter('wp_prepare_attachment_for_js', 'bb_svg_media_thumbnails', 10, 3);
 //* End allow SVG

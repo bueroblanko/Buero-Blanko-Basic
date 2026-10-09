@@ -9,19 +9,19 @@
  * and taxonomies.
  *
  * Functions:
- * 1. `duplicate_post_as_draft`: Handles the duplication process. It copies the post data, including title,
+ * 1. `bb_duplicate_post_as_draft`: Handles the duplication process. It copies the post data, including title,
  *    content, excerpt, and custom fields, and creates a new post with a 'draft' status. It also maintains
  *    the taxonomy terms (like categories and tags) from the original post.
- * 2. `duplicate_post_link`: Adds the 'Duplicate' action link to the WordPress admin interface for each post,
+ * 2. `bb_duplicate_post_link`: Adds the 'Duplicate' action link to the WordPress admin interface for each post,
  *    page, and custom post type. This link uses WordPress's built-in nonce functionality for security.
- * 3. `apply_duplicate_post_link_to_cpts`: Dynamically applies the duplicate post link function to all public
+ * 3. `bb_duplicate_post_link_cpts`: Dynamically applies the duplicate post link function to all public
  *    post types, ensuring the 'Duplicate' link appears for any custom post types registered on the site.
  *
  * Author: Mark Harris
  * URI: https://www.christchurchwebsolutions.co.uk
  */
  
-function duplicate_post_as_draft() {
+function bb_duplicate_post_as_draft() {
     global $wpdb;
  
     // Verify the nonce for security
@@ -92,9 +92,9 @@ function duplicate_post_as_draft() {
     exit();
 }
  
-add_action("admin_action_duplicate_post_as_draft", "duplicate_post_as_draft");
+add_action("admin_action_duplicate_post_as_draft", "bb_duplicate_post_as_draft");
  
-function duplicate_post_link($actions, $post) {
+function bb_duplicate_post_link($actions, $post) {
     if (current_user_can('edit_posts')) {
         $actions['duplicate'] = '<a href="' .
             wp_nonce_url(
@@ -108,22 +108,22 @@ function duplicate_post_link($actions, $post) {
     return $actions;
 }
  
-add_filter("post_row_actions", "duplicate_post_link", 10, 2);
-add_filter("page_row_actions", "duplicate_post_link", 10, 2);
+add_filter("post_row_actions", "bb_duplicate_post_link", 10, 2);
+add_filter("page_row_actions", "bb_duplicate_post_link", 10, 2);
  
-function apply_duplicate_post_link_to_cpts() {
+function bb_duplicate_post_link_cpts() {
     $post_types = get_post_types(["public" => true], "names");
     foreach ($post_types as $post_type) {
-        add_filter("{$post_type}_row_actions", "duplicate_post_link", 10, 2);
+        add_filter("{$post_type}_row_actions", "bb_duplicate_post_link", 10, 2);
     }
 }
  
-add_action("admin_init", "apply_duplicate_post_link_to_cpts");
+add_action("admin_init", "bb_duplicate_post_link_cpts");
  
-function show_duplicate_admin_notice() {
+function bb_duplicate_admin_notice() {
     if (isset($_GET['message']) && $_GET['message'] === '101') {
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html('Post duplicated successfully.') . '</p></div>';
     }
 }
  
-add_action('admin_notices', 'show_duplicate_admin_notice');
+add_action('admin_notices', 'bb_duplicate_admin_notice');

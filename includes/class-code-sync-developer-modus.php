@@ -7,7 +7,8 @@
  *
  * Schalter-Datei (erste Zeile <?php exit; ?>, dann je Zeile schluessel=wert):
  *   stufe=build|live|sleep|clear
- *                            build = alles erlaubt, live = nur lesende Werkzeuge,
+ *                            build = alles erlaubt, live = lesen und Entwuerfe bearbeiten
+ *                            (Freigabeweg, siehe class-code-sync-freigabe.php),
  *                            sleep = Dateien bleiben liegen, werden aber nicht geladen,
  *                            clear = Dateien werden geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
@@ -636,6 +637,11 @@ class Code_Sync_Developer_Modus {
 				return true;
 			}
 		}
+		// Freigabeweg: Entwurf anlegen und Entwuerfe bearbeiten (Sperre fuer
+		// veroeffentlichte Inhalte siehe Code_Sync_Freigabe).
+		if ( class_exists( 'Code_Sync_Freigabe' ) && Code_Sync_Freigabe::live_erlaubt( $name ) ) {
+			return true;
+		}
 		// Lesende Werkzeuge aus dem WordPress-Kern. Werkzeuge anderer Plugins sind
 		// ebenfalls gesperrt, weil Novamira sie sonst ueber MCP ausfuehren koennte.
 		return 0 === strpos( $name, 'core/get-' );
@@ -710,7 +716,7 @@ class Code_Sync_Developer_Modus {
 		$namen   = array(
 			'clear' => 'Clear (kein Novamira von BB Basic auf der Seite)',
 			'sleep' => 'Sleep (Novamira liegt bereit, wird nicht geladen)',
-			'live'  => 'Live (nur lesend)',
+			'live'  => 'Live (lesen, Änderungen nur über Entwurf und Freigabe)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
 		if ( 'sleep' === $zustand['stufe'] && '' === self::version( self::NOVAMIRA ) ) {

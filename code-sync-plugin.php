@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.16.6
+ * Version:           0.0.17.1
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -65,6 +65,11 @@ define( 'CODE_SYNC_ADD_META_TAGS', !$exists );
 // wp-content/bb-developer-modus.php per FTP abgelegt ist.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-developer-modus.php';
 Code_Sync_Developer_Modus::start();
+// Freigabeweg fuer Aenderungen auf Live-Seiten, nur mit Developer-Modus.
+if ( 'clear' !== Code_Sync_Developer_Modus::stufe() ) {
+	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-freigabe.php';
+	Code_Sync_Freigabe::start( Code_Sync_Developer_Modus::stufe() );
+}
 
 
 

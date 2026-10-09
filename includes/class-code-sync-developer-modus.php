@@ -1,21 +1,22 @@
 <?php
 
 /**
- * Developer-Modus: installiert Novamira und Novamira Pro (AGPL-3.0-or-later, Ovation S.r.l.)
- * als ganz normale Plugins, aber nur wenn per FTP die Schalter-Datei
+ * Developer-Modus: laedt Novamira und Novamira Pro (AGPL-3.0-or-later, Ovation S.r.l.)
+ * als Teil von BB Basic, aber nur wenn per FTP die Schalter-Datei
  * wp-content/bb-developer-modus.php liegt. Ohne Datei passiert nichts.
  *
  * Schalter-Datei (erste Zeile <?php exit; ?>, dann je Zeile schluessel=wert):
  *   stufe=build|live|sleep|clear
  *                            build = alles erlaubt, live = nur lesende Werkzeuge,
- *                            sleep = Plugins bleiben liegen, sind aber deaktiviert,
- *                            clear = Plugins werden geloescht (wie ohne Schalter-Datei)
+ *                            sleep = Dateien bleiben liegen, werden aber nicht geladen,
+ *                            clear = Dateien werden geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
  *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro
  *
- * Novamira kommt aus den GitHub-Releases des Herstellers, Pro ueber dessen
- * Lizenzserver. Danach aktualisieren sich beide selbst wie jedes andere Plugin.
- * Geloescht werden nur Plugins, die BB Basic selbst installiert hat.
+ * Die Dateien liegen in wp-content/plugins/bb-basic-module/<name>/. Das ist eine
+ * Ebene tiefer als normale Plugins, deshalb stehen sie nicht in der Plugin-Liste.
+ * BB Basic laedt sie selbst und haelt sie aktuell: Novamira aus den
+ * GitHub-Releases des Herstellers, Pro ueber dessen Lizenzserver.
  *
  * @package    Code_Sync
  * @subpackage Code_Sync/includes
@@ -33,12 +34,17 @@ class Code_Sync_Developer_Modus {
 	const LAUFZEIT_TAGE = 14;
 	const MIN_PHP       = '8.0';
 	const MIN_WP        = '6.9';
+	const UPDATE_ALLE   = 12 * HOUR_IN_SECONDS;
 
-	const NOVAMIRA      = 'novamira/novamira.php';
-	const PRO           = 'novamira-pro/novamira-pro.php';
+	const ORDNER        = 'bb-basic-module';
+	const NOVAMIRA      = 'novamira';
+	const PRO           = 'novamira-pro';
 	const GITHUB_API    = 'https://api.github.com/repos/use-novamira/novamira/releases/latest';
 	const PRO_API       = 'https://license.dynamic.ooo/novamira-pro/';
 	const PRO_PRODUKT   = 'WP-NVP-1';
+
+	// Bis 0.0.16-Test als normale Plugins installiert, werden beim Abgleich entfernt.
+	private static $alt = array( 'novamira/novamira.php', 'novamira-pro/novamira-pro.php' );
 
 	// In Stufe live erlaubte Werkzeuge (nur Lesen). Alles andere wird abgemeldet.
 	private static $live_erlaubt = array(
@@ -55,22 +61,25 @@ class Code_Sync_Developer_Modus {
 		'#^novamira/divi-(get|list)-#',
 	);
 
-	/** Zustand fuer die Anzeige. */
+	/** Zustand laut Schalter-Datei. */
 	private static $zustand = null;
 
+	/** Was in diesem Aufruf geladen wurde, und warum nicht. */
+	private static $geladen = array();
+	private static $hinweis = '';
+
 	/**
-	 * Wird beim Laden von BB Basic aufgerufen. Haengt nur Hooks ein, die eigentliche
-	 * Arbeit (Installieren, Aktivieren, Loeschen) laeuft per Cron.
+	 * Wird beim Laden von BB Basic aufgerufen, also waehrend WordPress die Plugins
+	 * laedt. Laedt Novamira in build/live, die uebrige Arbeit laeuft per Cron.
 	 */
 	public static function start() {
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		self::$zustand = file_exists( $datei ) ? self::schalter_lesen( $datei ) : array( 'stufe' => 'clear', 'lizenz' => '', 'grund' => '' );
 
 		add_action( self::CRON, array( __CLASS__, 'abgleich' ) );
-		add_filter( 'auto_update_plugin', array( __CLASS__, 'auto_update' ), 10, 2 );
 
 		$status = self::status();
-		if ( 'clear' === self::$zustand['stufe'] && empty( $status['installiert'] ) ) {
+		if ( 'clear' === self::$zustand['stufe'] && ! $status['aufraeumen'] && ! is_dir( self::modul_dir() ) ) {
 			// Normalfall auf allen Seiten: nichts zu tun.
 			if ( wp_next_scheduled( self::CRON ) ) {
 				wp_clear_scheduled_hook( self::CRON );
@@ -88,12 +97,102 @@ class Code_Sync_Developer_Modus {
 		}
 
 		if ( in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
-			// Novamiras eigener An-Schalter folgt unserer Schalter-Datei.
-			add_filter( 'pre_option_novamira_ai_abilities_enabled', array( __CLASS__, 'option_an' ) );
-			add_filter( 'pre_option_novamira_ai_abilities_domain', array( __CLASS__, 'option_domain' ) );
+			self::laden();
 		}
+	}
+
+	public static function modul_dir() {
+		return WP_PLUGIN_DIR . '/' . self::ORDNER;
+	}
+
+	private static function hauptdatei( $name ) {
+		return self::modul_dir() . '/' . $name . '/' . $name . '.php';
+	}
+
+	/**
+	 * Novamira (und Pro) aus dem Modul-Ordner laden, so wie WordPress ein Plugin laedt.
+	 */
+	private static function laden() {
+		if ( ! file_exists( self::hauptdatei( self::NOVAMIRA ) ) ) {
+			return;
+		}
+		if ( version_compare( PHP_VERSION, self::MIN_PHP, '<' ) || version_compare( $GLOBALS['wp_version'], self::MIN_WP, '<' ) ) {
+			self::$hinweis = 'PHP oder WordPress zu alt fuer Novamira, nicht geladen.';
+			return;
+		}
+		if ( 'live' === self::$zustand['stufe'] && self::sandbox_belegt() ) {
+			self::$hinweis = 'Sandbox nicht leer (wp-content/novamira-sandbox). Auf Live-Seiten bleibt Novamira deshalb aus.';
+			return;
+		}
+		// Ist Novamira zusaetzlich als normales Plugin aktiv, laden wir unsere Kopie nicht.
+		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
+			if ( in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true ) && 0 !== strpos( $plugin, self::ORDNER . '/' ) ) {
+				self::$hinweis = 'Novamira ist zusaetzlich als normales Plugin aktiv (' . $plugin . '). Die Kopie in BB Basic wird deshalb nicht geladen.';
+				return;
+			}
+		}
+
+		// Novamiras eigener An-Schalter folgt unserer Schalter-Datei.
+		add_filter( 'pre_option_novamira_ai_abilities_enabled', array( __CLASS__, 'option_an' ) );
+		add_filter( 'pre_option_novamira_ai_abilities_domain', array( __CLASS__, 'option_domain' ) );
 		if ( 'live' === self::$zustand['stufe'] ) {
 			add_action( 'wp_abilities_api_init', array( __CLASS__, 'live_sperre' ), PHP_INT_MAX );
+		}
+
+		foreach ( array( self::NOVAMIRA, self::PRO ) as $name ) {
+			$datei = self::hauptdatei( $name );
+			if ( ! file_exists( $datei ) ) {
+				continue;
+			}
+			try {
+				include_once $datei;
+				self::$geladen[ $name ] = $datei;
+			} catch ( Throwable $e ) {
+				self::$hinweis = $name . ' konnte nicht geladen werden: ' . $e->getMessage();
+				break;
+			}
+		}
+		if ( empty( self::$geladen ) ) {
+			return;
+		}
+
+		// Updates holt BB Basic selbst. Novamiras eigener Updater wuerde sonst ein
+		// Update fuer ein Plugin melden, das nicht in der Plugin-Liste steht.
+		remove_filter( 'site_transient_update_plugins', 'novamira_check_for_updates' );
+		remove_filter( 'plugins_api', 'novamira_plugins_api' );
+
+		add_action( 'admin_menu', array( __CLASS__, 'menue' ), PHP_INT_MAX );
+		add_action( 'wp_loaded', array( __CLASS__, 'aktivieren' ) );
+	}
+
+	/**
+	 * Novamira-Menue im Backend nur fuer Konten @bueroblanko.de.
+	 */
+	public static function menue() {
+		$mail = strtolower( (string) wp_get_current_user()->user_email );
+		$ende = '@' . CODE_SYNC_ALLOWED_MAIL;
+		if ( substr( $mail, -strlen( $ende ) ) !== $ende ) {
+			remove_menu_page( 'novamira-connect' );
+		}
+	}
+
+	/**
+	 * Aktivierungs-Hooks (Tabellen, Cron) einmal je Version ausfuehren, wie beim
+	 * Aktivieren eines Plugins.
+	 */
+	public static function aktivieren() {
+		$status = self::status();
+		$neu    = false;
+		foreach ( self::$geladen as $name => $datei ) {
+			$version = self::version( $name );
+			if ( ! isset( $status['aktiviert'][ $name ] ) || $status['aktiviert'][ $name ] !== $version ) {
+				do_action( 'activate_' . plugin_basename( $datei ), false );
+				$status['aktiviert'][ $name ] = $version;
+				$neu = true;
+			}
+		}
+		if ( $neu ) {
+			self::status_speichern( $status );
 		}
 	}
 
@@ -141,19 +240,24 @@ class Code_Sync_Developer_Modus {
 		if ( ! is_array( $status ) ) {
 			$status = array();
 		}
-		return array_merge(
+		$status = array_merge(
 			array(
 				'stufe'       => 'clear',
-				'installiert' => array(), // Plugin-Dateien, die BB Basic selbst installiert hat
+				'installiert' => array(), // alte, sichtbar installierte Plugins (bis 0.0.16-Test)
+				'aktiviert'   => array(), // Name => Version, fuer die die Aktivierungs-Hooks liefen
 				'geprueft'    => 0,
+				'update'      => 0,       // letzte Suche nach neuen Versionen
 				'fehler'      => '',
 				'lizenz'      => '',      // Lizenz, die zuletzt an Pro uebergeben wurde
 			),
 			$status
 		);
+		$status['aufraeumen'] = ! empty( $status['installiert'] );
+		return $status;
 	}
 
 	private static function status_speichern( $status ) {
+		unset( $status['aufraeumen'] );
 		update_option( self::OPTION, $status, false );
 	}
 
@@ -165,34 +269,31 @@ class Code_Sync_Developer_Modus {
 		return (string) wp_parse_url( home_url(), PHP_URL_HOST );
 	}
 
-	/**
-	 * Von BB Basic installierte Plugins aktualisieren sich automatisch.
-	 */
-	public static function auto_update( $update, $item ) {
-		if ( ! isset( $item->plugin ) || ! in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
-			return $update;
+	private static function version( $name ) {
+		$datei = self::hauptdatei( $name );
+		if ( ! file_exists( $datei ) ) {
+			return '';
 		}
-		return in_array( $item->plugin, self::status()['installiert'], true ) ? true : $update;
+		$daten = get_file_data( $datei, array( 'Version' => 'Version' ) );
+		return (string) $daten['Version'];
 	}
 
 	/**
-	 * Cron: bringt die Plugins auf den Stand der Schalter-Datei.
+	 * Cron: bringt den Modul-Ordner auf den Stand der Schalter-Datei.
 	 */
 	public static function abgleich() {
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		require_once ABSPATH . 'wp-admin/includes/file.php';
-		require_once ABSPATH . 'wp-admin/includes/misc.php';
-		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 
 		$status = self::status();
 		$stufe  = self::$zustand['stufe'];
-		$fehler = '';
+		$fehler = self::alte_plugins_entfernen( $status );
 
 		if ( 'clear' === $stufe ) {
-			$fehler = self::entfernen( $status );
+			$fehler = $fehler ? $fehler : self::entfernen( $status );
 		} elseif ( 'sleep' === $stufe ) {
-			deactivate_plugins( array_intersect( array( self::PRO, self::NOVAMIRA ), $status['installiert'] ), true );
-		} else {
+			self::cron_aufraeumen();
+		} elseif ( ! $fehler ) {
 			$fehler = self::bereitstellen( $status );
 		}
 
@@ -208,7 +309,28 @@ class Code_Sync_Developer_Modus {
 	}
 
 	/**
-	 * Stufe build oder live: installieren, falls noetig, und aktivieren.
+	 * Uebergang: Bis zum 0.0.16-Test hat BB Basic Novamira als sichtbares Plugin
+	 * installiert. Diese Kopien kommen weg, Einstellungen und Daten bleiben.
+	 */
+	private static function alte_plugins_entfernen( &$status ) {
+		$alte = array_values( array_intersect( self::$alt, $status['installiert'] ) );
+		if ( empty( $alte ) ) {
+			$status['installiert'] = array();
+			return '';
+		}
+		deactivate_plugins( $alte, true );
+		foreach ( $alte as $plugin ) {
+			$ordner = WP_PLUGIN_DIR . '/' . dirname( $plugin );
+			if ( is_dir( $ordner ) && ! self::ordner_loeschen( $ordner ) ) {
+				return 'Altes Plugin ' . $plugin . ' konnte nicht geloescht werden.';
+			}
+		}
+		$status['installiert'] = array();
+		return '';
+	}
+
+	/**
+	 * Stufe build oder live: fehlende Teile holen und alle 12 Stunden nach Updates sehen.
 	 */
 	private static function bereitstellen( &$status ) {
 		if ( version_compare( PHP_VERSION, self::MIN_PHP, '<' ) ) {
@@ -219,42 +341,35 @@ class Code_Sync_Developer_Modus {
 		}
 
 		$lizenz = self::$zustand['lizenz'];
-		$plugins = get_plugins();
+		$suchen = time() - $status['update'] > self::UPDATE_ALLE;
 
-		if ( ! isset( $plugins[ self::NOVAMIRA ] ) ) {
-			$url = self::novamira_zip();
-			if ( is_wp_error( $url ) ) {
-				return $url->get_error_message();
+		if ( $suchen || '' === self::version( self::NOVAMIRA ) ) {
+			$neueste = self::novamira_zip();
+			if ( is_wp_error( $neueste ) ) {
+				return $neueste->get_error_message();
 			}
-			$fehler = self::installieren( $url, self::NOVAMIRA, $status );
-			if ( $fehler ) {
-				return $fehler;
-			}
-		}
-
-		if ( '' !== $lizenz && ! isset( $plugins[ self::PRO ] ) ) {
-			$url = self::pro_zip( $lizenz );
-			if ( is_wp_error( $url ) ) {
-				return $url->get_error_message();
-			}
-			$fehler = self::installieren( $url, self::PRO, $status );
-			if ( $fehler ) {
-				return $fehler;
-			}
-		}
-
-		if ( 'live' === self::$zustand['stufe'] && self::sandbox_belegt() ) {
-			deactivate_plugins( array( self::PRO, self::NOVAMIRA ), true );
-			return 'Sandbox nicht leer (wp-content/novamira-sandbox). Auf Live-Seiten bleibt Novamira deshalb aus.';
-		}
-
-		foreach ( array( self::NOVAMIRA, self::PRO ) as $datei ) {
-			if ( file_exists( WP_PLUGIN_DIR . '/' . $datei ) && ! is_plugin_active( $datei ) ) {
-				$ergebnis = activate_plugin( $datei );
-				if ( is_wp_error( $ergebnis ) ) {
-					return 'Aktivieren von ' . $datei . ' fehlgeschlagen: ' . $ergebnis->get_error_message();
+			if ( version_compare( self::version( self::NOVAMIRA ), $neueste['version'], '<' ) ) {
+				$fehler = self::installieren( $neueste['url'], self::NOVAMIRA );
+				if ( $fehler ) {
+					return $fehler;
 				}
 			}
+		}
+
+		if ( '' !== $lizenz && ( $suchen || '' === self::version( self::PRO ) ) ) {
+			$neueste = self::pro_zip( $lizenz, self::version( self::PRO ) );
+			if ( is_wp_error( $neueste ) ) {
+				return $neueste->get_error_message();
+			}
+			if ( $neueste && version_compare( self::version( self::PRO ), $neueste['version'], '<' ) ) {
+				$fehler = self::installieren( $neueste['url'], self::PRO );
+				if ( $fehler ) {
+					return $fehler;
+				}
+			}
+		}
+		if ( $suchen ) {
+			$status['update'] = time();
 		}
 
 		// Pro bekommt die Lizenz einmal, und wieder, wenn sie sich in der Schalter-Datei aendert.
@@ -270,90 +385,142 @@ class Code_Sync_Developer_Modus {
 	}
 
 	/**
-	 * Stufe clear: nur die Plugins loeschen, die BB Basic selbst installiert hat.
+	 * Stufe clear: Novamira-Daten aufraeumen und den Modul-Ordner loeschen.
 	 */
 	private static function entfernen( &$status ) {
-		$eigene = array_intersect( array( self::PRO, self::NOVAMIRA ), $status['installiert'] );
-		if ( empty( $eigene ) ) {
-			return '';
-		}
-		deactivate_plugins( $eigene, true );
-		$vorhanden = array_values( array_filter( $eigene, array( __CLASS__, 'plugin_da' ) ) );
-		if ( $vorhanden ) {
-			$ergebnis = delete_plugins( $vorhanden );
-			if ( is_wp_error( $ergebnis ) || ! $ergebnis ) {
-				return 'Loeschen fehlgeschlagen' . ( is_wp_error( $ergebnis ) ? ': ' . $ergebnis->get_error_message() : '.' );
+		self::cron_aufraeumen();
+		$uninstall = self::modul_dir() . '/' . self::NOVAMIRA . '/uninstall.php';
+		if ( file_exists( $uninstall ) && ! function_exists( 'novamira_uninstall_plan' ) ) {
+			if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
+				define( 'WP_UNINSTALL_PLUGIN', self::ORDNER . '/' . self::NOVAMIRA . '/novamira.php' );
+			}
+			try {
+				include $uninstall;
+			} catch ( Throwable $e ) {
+				// Daten bleiben dann liegen, der Ordner kommt trotzdem weg.
+				unset( $e );
 			}
 		}
-		$status['installiert'] = array();
-		return '';
-	}
-
-	public static function plugin_da( $datei ) {
-		return file_exists( WP_PLUGIN_DIR . '/' . $datei );
-	}
-
-	private static function installieren( $url, $datei, &$status ) {
-		$upgrader = new Plugin_Upgrader( new Automatic_Upgrader_Skin() );
-		$ergebnis = $upgrader->install( $url );
-		if ( is_wp_error( $ergebnis ) || ! $ergebnis || ! self::plugin_da( $datei ) ) {
-			$text = is_wp_error( $ergebnis ) ? $ergebnis->get_error_message() : implode( ' ', (array) $upgrader->skin->get_upgrade_messages() );
-			return 'Installieren von ' . $datei . ' fehlgeschlagen. ' . $text;
+		if ( is_dir( self::modul_dir() ) && ! self::ordner_loeschen( self::modul_dir() ) ) {
+			return 'Ordner ' . self::ORDNER . ' konnte nicht geloescht werden.';
 		}
-		$status['installiert'][] = $datei;
-		$status['installiert']   = array_values( array_unique( $status['installiert'] ) );
-		// Sofort speichern, damit clear das Plugin auch nach einem spaeteren Fehler findet.
-		self::status_speichern( $status );
+		$status['aktiviert'] = array();
+		$status['lizenz']    = '';
 		return '';
 	}
 
 	/**
-	 * Download-Adresse der neuesten Novamira-Version aus den GitHub-Releases.
+	 * Geplante Novamira-Aufgaben abmelden (das, was sonst beim Deaktivieren passiert).
+	 */
+	private static function cron_aufraeumen() {
+		foreach ( (array) _get_cron_array() as $termine ) {
+			foreach ( array_keys( (array) $termine ) as $hook ) {
+				if ( 0 === strpos( $hook, 'novamira' ) ) {
+					wp_clear_scheduled_hook( $hook );
+				}
+			}
+		}
+	}
+
+	private static function dateisystem() {
+		global $wp_filesystem;
+		if ( ! $wp_filesystem && ! WP_Filesystem() ) {
+			return null;
+		}
+		return $wp_filesystem;
+	}
+
+	private static function ordner_loeschen( $ordner ) {
+		$fs = self::dateisystem();
+		return $fs && $fs->delete( $ordner, true );
+	}
+
+	/**
+	 * ZIP laden, in einen Zwischenordner entpacken und den alten Stand ersetzen.
+	 */
+	private static function installieren( $url, $name ) {
+		$fs = self::dateisystem();
+		if ( ! $fs ) {
+			return 'Kein Schreibzugriff auf wp-content/plugins.';
+		}
+		$zip = download_url( $url, 120 );
+		if ( is_wp_error( $zip ) ) {
+			return 'Download von ' . $name . ' fehlgeschlagen: ' . $zip->get_error_message();
+		}
+
+		$basis = self::modul_dir();
+		$neu   = $basis . '/.neu-' . $name;
+		if ( ! is_dir( $basis ) ) {
+			wp_mkdir_p( $basis );
+		}
+		$fs->delete( $neu, true );
+		$ergebnis = unzip_file( $zip, $neu );
+		@unlink( $zip );
+		if ( is_wp_error( $ergebnis ) || ! file_exists( $neu . '/' . $name . '/' . $name . '.php' ) ) {
+			$fs->delete( $neu, true );
+			return 'Paket von ' . $name . ' ist unvollstaendig' . ( is_wp_error( $ergebnis ) ? ': ' . $ergebnis->get_error_message() : '.' );
+		}
+
+		$ziel = $basis . '/' . $name;
+		$fs->delete( $ziel, true );
+		$ok = $fs->move( $neu . '/' . $name, $ziel, true );
+		$fs->delete( $neu, true );
+		return $ok ? '' : 'Ersetzen von ' . $name . ' fehlgeschlagen.';
+	}
+
+	/**
+	 * Neueste Novamira-Version aus den GitHub-Releases: array( version, url ).
 	 */
 	private static function novamira_zip() {
 		$antwort = wp_remote_get( self::GITHUB_API, array( 'timeout' => 15, 'headers' => array( 'Accept' => 'application/vnd.github+json' ) ) );
 		if ( is_wp_error( $antwort ) || 200 !== wp_remote_retrieve_response_code( $antwort ) ) {
-			return new WP_Error( 'bb_novamira', 'GitHub nicht erreichbar, Novamira nicht installiert.' );
+			return new WP_Error( 'bb_novamira', 'GitHub nicht erreichbar, Novamira nicht geprueft.' );
 		}
 		$daten = json_decode( wp_remote_retrieve_body( $antwort ), true );
 		foreach ( isset( $daten['assets'] ) ? (array) $daten['assets'] : array() as $datei ) {
 			if ( isset( $datei['name'], $datei['browser_download_url'] )
-				&& preg_match( '#^novamira-[0-9.]+\.zip$#', $datei['name'] )
+				&& preg_match( '#^novamira-([0-9.]+)\.zip$#', $datei['name'], $treffer )
 				&& 0 === strpos( $datei['browser_download_url'], 'https://github.com/use-novamira/novamira/' ) ) {
-				return $datei['browser_download_url'];
+				return array( 'version' => $treffer[1], 'url' => $datei['browser_download_url'] );
 			}
 		}
 		return new WP_Error( 'bb_novamira', 'Im neuesten GitHub-Release liegt keine Novamira-ZIP.' );
 	}
 
 	/**
-	 * Download-Adresse von Novamira Pro: Lizenz fuer diese Domain aktivieren, dann
+	 * Neueste Version von Novamira Pro: Lizenz fuer diese Domain aktivieren, dann
 	 * beim Lizenzserver nach dem Paket fragen (wie Pros eigener Updater).
+	 * Gibt array( version, url ) zurueck, oder null, wenn nichts Neueres da ist.
 	 */
-	private static function pro_zip( $lizenz ) {
+	private static function pro_zip( $lizenz, $installiert ) {
 		$domain = (string) wp_parse_url( home_url(), PHP_URL_HOST );
-		$aktiv  = wp_remote_get( add_query_arg( array(
-			'woo_sl_action'     => 'activate',
-			'licence_key'       => $lizenz,
-			'product_unique_id' => self::PRO_PRODUKT,
-			'domain'            => $domain,
-			'api_version'       => '1.1',
-		), self::PRO_API . 'api.php' ), array( 'timeout' => 15 ) );
-		if ( is_wp_error( $aktiv ) ) {
-			return new WP_Error( 'bb_novamira', 'Lizenzserver von Novamira Pro nicht erreichbar.' );
+		if ( '' === $installiert ) {
+			$aktiv = wp_remote_get( add_query_arg( array(
+				'woo_sl_action'     => 'activate',
+				'licence_key'       => $lizenz,
+				'product_unique_id' => self::PRO_PRODUKT,
+				'domain'            => $domain,
+				'api_version'       => '1.1',
+			), self::PRO_API . 'api.php' ), array( 'timeout' => 15 ) );
+			if ( is_wp_error( $aktiv ) ) {
+				return new WP_Error( 'bb_novamira', 'Lizenzserver von Novamira Pro nicht erreichbar.' );
+			}
 		}
 
 		$info = wp_remote_get( add_query_arg( array(
 			'domain'      => $domain,
-			'version'     => '0',
+			'version'     => '' === $installiert ? '0' : $installiert,
 			'licence_key' => $lizenz,
 			'beta'        => 'false',
 		), self::PRO_API . 'info.php' ), array( 'timeout' => 15, 'headers' => array( 'Accept' => 'application/json' ) ) );
 		$daten = is_wp_error( $info ) ? null : json_decode( wp_remote_retrieve_body( $info ), true );
-		if ( ! is_array( $daten ) || empty( $daten['download_url'] ) ) {
-			return new WP_Error( 'bb_novamira', 'Kein Pro-Download erhalten. Lizenzschluessel pruefen.' );
+		if ( ! is_array( $daten ) ) {
+			return new WP_Error( 'bb_novamira', 'Lizenzserver von Novamira Pro nicht erreichbar.' );
 		}
-		return $daten['download_url'];
+		if ( empty( $daten['download_url'] ) || empty( $daten['version'] ) ) {
+			return '' === $installiert ? new WP_Error( 'bb_novamira', 'Kein Pro-Download erhalten. Lizenzschluessel pruefen.' ) : null;
+		}
+		return array( 'version' => (string) $daten['version'], 'url' => $daten['download_url'] );
 	}
 
 	private static function sandbox_belegt() {
@@ -426,7 +593,10 @@ class Code_Sync_Developer_Modus {
 			}
 			self::$zustand = self::schalter_lesen( $datei );
 		}
-		self::abgleich();
+		// Der Abgleich laeuft im naechsten Aufruf, in dem Novamira schon nicht mehr geladen ist.
+		wp_clear_scheduled_hook( self::CRON );
+		wp_schedule_event( time(), 'hourly', self::CRON );
+		spawn_cron();
 		return '';
 	}
 
@@ -438,7 +608,7 @@ class Code_Sync_Developer_Modus {
 		$status  = self::status();
 		$namen   = array(
 			'clear' => 'Clear (kein Novamira von BB Basic auf der Seite)',
-			'sleep' => 'Sleep (Novamira deaktiviert)',
+			'sleep' => 'Sleep (Novamira liegt bereit, wird nicht geladen)',
 			'live'  => 'Live (nur lesend)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
@@ -446,14 +616,14 @@ class Code_Sync_Developer_Modus {
 		if ( 'clear' !== $zustand['stufe'] ) {
 			$zeilen[] = 'Gültig bis ' . wp_date( 'd.m.Y', $zustand['bis'] );
 		}
-		if ( ! function_exists( 'get_plugins' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-		$plugins = get_plugins();
-		foreach ( array( self::NOVAMIRA => 'Novamira', self::PRO => 'Novamira Pro' ) as $datei => $name ) {
-			if ( isset( $plugins[ $datei ] ) ) {
-				$zeilen[] = $name . ' ' . $plugins[ $datei ]['Version'] . ( is_plugin_active( $datei ) ? ' (aktiv)' : ' (inaktiv)' );
+		foreach ( array( self::NOVAMIRA => 'Novamira', self::PRO => 'Novamira Pro' ) as $name => $titel ) {
+			$version = self::version( $name );
+			if ( '' !== $version ) {
+				$zeilen[] = $titel . ' ' . $version . ( isset( self::$geladen[ $name ] ) ? ' (geladen)' : ' (nicht geladen)' );
 			}
+		}
+		if ( self::$hinweis ) {
+			$zeilen[] = 'Hinweis: ' . self::$hinweis;
 		}
 		if ( $status['geprueft'] ) {
 			$zeilen[] = 'Zuletzt abgeglichen am ' . wp_date( 'd.m.Y H:i', $status['geprueft'] ) . ( $status['fehler'] ? ': ' . $status['fehler'] : '' );

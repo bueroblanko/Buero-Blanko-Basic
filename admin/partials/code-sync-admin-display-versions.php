@@ -47,7 +47,7 @@
         <?php
         $code_sync_namen = array(
             'live'  => 'Auf Live schalten (nur lesend)',
-            'sleep' => 'Auf Sleep schalten (Novamira deaktivieren)',
+            'sleep' => 'Auf Sleep schalten (Novamira nicht laden)',
             'clear' => 'Clear (Novamira löschen)',
         );
         $code_sync_stufen = Code_Sync_Developer_Modus::niedrigere_stufen();

@@ -15,8 +15,8 @@
  * @wordpress-plugin
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
- * Description:       to sync all code snippets across client sites
- * Version:           0.0.13
+ * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten.
+ * Version:           0.0.14
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+

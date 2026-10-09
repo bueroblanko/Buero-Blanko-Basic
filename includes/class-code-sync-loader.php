@@ -19,7 +19,7 @@
  *
  * @package    Code_Sync
  * @subpackage Code_Sync/includes
- * @author     Ilyes <test@test.com>
+ * @author     Büro Blanko Medien GmbH <info@bueroblanko.de>
  */
 class Code_Sync_Loader {
 

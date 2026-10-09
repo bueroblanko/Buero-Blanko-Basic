@@ -22,7 +22,7 @@
  */
 
  if (! defined('CODE_SYNC_ALLOWED_MAIL')) {
-	die('Bruh!');
+	die;
 }
 
 
@@ -120,7 +120,6 @@ class Code_Sync_Admin {
 		 * class.
 		 */
 
-		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-admin.js', array( 'jquery' ), $this->version, false );
 
 		// check if the user email ends with buerobronko , if not enqueue a script
 		if ( ! $this->is_bueroblanko_user() ) {

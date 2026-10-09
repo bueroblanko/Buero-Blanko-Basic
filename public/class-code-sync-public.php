@@ -18,11 +18,11 @@
  *
  * @package    Code_Sync
  * @subpackage Code_Sync/public
- * @author     Ilyes <test@test.com>
+ * @author     Büro Blanko Medien GmbH <info@bueroblanko.de>
  */
 
 if (! defined('CODE_SYNC_ALLOWED_MAIL')) {
-	die('Bruh!');
+	die;
 }
 class Code_Sync_Public {
 
@@ -65,27 +65,6 @@ class Code_Sync_Public {
 	 */
 	public function enqueue_styles() {
 
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Code_Sync_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Code_Sync_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
-		// add_action('wp_head', 'my_custom_wp_head_function');
-
-		// function my_custom_wp_head_function() {
-		// 	$f  =  plugin_dir_path(__FILE__) . 'code-snippets/';
-		// 	$snippets_dir =  plugin_dir_path(__FILE__) . 'code-snippets/';
-		// 	foreach (glob($snippets_dir . "*.php") as $file) {
-		// 			$f.=  $file . "\n";
-		// 		}
-		// 	echo '<!-- ' . $f . ' -->';
-		// }
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/code-sync-public.css', array(), $this->version, 'all' );
 		// Divi-Layout-Sperre nur fuer angemeldete Nutzer ausserhalb von Buero Blanko,
 		// Besucher ohne Login koennen den Builder ohnehin nicht oeffnen
@@ -101,20 +80,6 @@ class Code_Sync_Public {
 	 */
 	public function enqueue_scripts() {
 
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Code_Sync_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Code_Sync_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
-
-		//wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-public.js', array( 'jquery' ), $this->version, false );
-		// check if the user email ends with buerobronko , if not enqueue a script
 		if ( is_user_logged_in() && ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_script( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'js/code-sync-public-disable-divi-layouts.js', array( 'jquery' ), $this->version, true );
 		}

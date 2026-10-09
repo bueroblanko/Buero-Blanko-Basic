@@ -30,8 +30,12 @@ class Code_Sync_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
-		// Die Meta-Tag-Tabelle bleibt beim Deaktivieren erhalten. Geloescht wird
-		// sie erst beim Loeschen des Plugins (uninstall.php).
+		// Beim Deaktivieren werden die Meta-Tags bewusst geloescht (Entscheidung
+		// Philipp, 09.10.2026). Beim Aktivieren wird die Tabelle neu angelegt.
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
+		$wpdb->query( "DROP TABLE IF EXISTS $table_name" );
+		delete_option( 'code_sync_db_version' );
 	}
 
 }

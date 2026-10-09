@@ -36,6 +36,7 @@ if ( ! defined( 'WPINC' ) ) {
  */
 define( 'CODE_SYNC_VERSION', '1.0.0' );
 define('CODE_SYNC_ALLOWED_MAIL', 'bueroblanko.de');
+define( 'CODE_SYNC_PLUGIN_FILE', __FILE__ );
 
 // check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
 $plugs = [

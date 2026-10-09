@@ -87,8 +87,9 @@ class Code_Sync_Public {
 		// 	echo '<!-- ' . $f . ' -->';
 		// }
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/code-sync-public.css', array(), $this->version, 'all' );
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		// Divi-Layout-Sperre nur fuer angemeldete Nutzer ausserhalb von Buero Blanko,
+		// Besucher ohne Login koennen den Builder ohnehin nicht oeffnen
+		if ( is_user_logged_in() && ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_style( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'css/code-sync-public-disable-divi-layouts.css', array( ), $this->version, 'all' );
 		}
 	}
@@ -114,12 +115,17 @@ class Code_Sync_Public {
 
 		//wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-public.js', array( 'jquery' ), $this->version, false );
 		// check if the user email ends with buerobronko , if not enqueue a script
-		if (defined('ADMIN_MAIL'))
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		if ( is_user_logged_in() && ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_script( 'code-sync-public-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'js/code-sync-public-disable-divi-layouts.js', array( 'jquery' ), $this->version, true );
 		}
 	
+	}
+
+	/** Ist der angemeldete Nutzer ein Buero-Blanko-Konto (Mail endet auf @bueroblanko.de)? */
+	public function is_bueroblanko_user() {
+		$email = strtolower( (string) $this->get_current_user_email() );
+		$suffix = '@' . CODE_SYNC_ALLOWED_MAIL;
+		return $email !== '' && substr( $email, -strlen( $suffix ) ) === $suffix;
 	}
 
 	public function get_current_user_email() {
@@ -237,21 +243,16 @@ EOT;
 		echo $result;
 	}
 
-	public function load_js_snippets(){
-		
-
-		$snippets_dir = plugin_dir_url(__FILE__) . 'js/';
-			
-			if (is_dir(plugin_dir_path(__FILE__) . 'js/')) {
-				$snippets = glob(plugin_dir_path(__FILE__) . 'js/*.js');
-				
-				if (!empty($snippets)) {
-					foreach ($snippets as $file) {
-						$filename = basename($file);
-						wp_enqueue_script($filename, $snippets_dir . $filename, array('jquery'), null, true);
-					}
-				}
-			}
+	public function load_js_snippets() {
+		$snippets_dir = plugin_dir_path( __FILE__ ) . '../code-snippets/js/';
+		$snippets = glob( $snippets_dir . '*.js' );
+		if ( empty( $snippets ) ) {
+			return;
+		}
+		foreach ( $snippets as $file ) {
+			$filename = basename( $file );
+			wp_enqueue_script( $filename, plugins_url( 'code-snippets/js/' . $filename, CODE_SYNC_PLUGIN_FILE ), array( 'jquery' ), null, true );
+		}
 	}
 
 	public function add_body_class ($classes) {

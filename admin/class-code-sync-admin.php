@@ -81,10 +81,16 @@ class Code_Sync_Admin {
 
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/code-sync-admin.css', array(), $this->version, 'all' );
 		// check if the user email ends with buerobronko , if not enqueue a script
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		if ( ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_style( 'code-sync-admin-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'css/code-sync-admin-disable-divi-layouts.css', array( ), $this->version, 'all' );
 		}
+	}
+
+	/** Ist der angemeldete Nutzer ein Buero-Blanko-Konto (Mail endet auf @bueroblanko.de)? */
+	public function is_bueroblanko_user() {
+		$email = strtolower( (string) $this->get_current_user_email() );
+		$suffix = '@' . CODE_SYNC_ALLOWED_MAIL;
+		return $email !== '' && substr( $email, -strlen( $suffix ) ) === $suffix;
 	}
 
 	public function get_current_user_email() {
@@ -117,8 +123,7 @@ class Code_Sync_Admin {
 		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/code-sync-admin.js', array( 'jquery' ), $this->version, false );
 
 		// check if the user email ends with buerobronko , if not enqueue a script
-		$email = $this->get_current_user_email();
-		if (empty ($email) || strpos($email, CODE_SYNC_ALLOWED_MAIL) === false) {
+		if ( ! $this->is_bueroblanko_user() ) {
 			wp_enqueue_script( 'code-sync-admin-disable-divi-layouts', plugin_dir_url( __FILE__ ) . 'js/code-sync-admin-disable-divi-layouts.js', array( 'jquery' ), $this->version, true );
 		}
 

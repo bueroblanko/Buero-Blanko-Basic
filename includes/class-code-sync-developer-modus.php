@@ -659,6 +659,9 @@ class Code_Sync_Developer_Modus {
 			'live'  => 'Live (nur lesend)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
+		if ( 'sleep' === $zustand['stufe'] && '' === self::version( self::NOVAMIRA ) ) {
+			$namen['sleep'] = 'Sleep (Novamira ist nicht auf der Seite, wird erst bei Build oder Live geholt)';
+		}
 		$zeilen = array( $namen[ $zustand['stufe'] ] );
 		if ( 'clear' !== $zustand['stufe'] ) {
 			$zeilen[] = 'Gültig bis ' . wp_date( 'd.m.Y', $zustand['bis'] );

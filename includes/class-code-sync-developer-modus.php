@@ -501,7 +501,15 @@ class Code_Sync_Developer_Modus {
 	private static function novamira_zip() {
 		$antwort = wp_remote_get( self::GITHUB_API, array( 'timeout' => 15, 'headers' => array( 'Accept' => 'application/vnd.github+json' ) ) );
 		if ( is_wp_error( $antwort ) || 200 !== wp_remote_retrieve_response_code( $antwort ) ) {
-			return new WP_Error( 'bb_novamira', 'GitHub nicht erreichbar, Novamira nicht geprueft.' );
+			// Die GitHub-API erlaubt je Server-IP nur 60 Abfragen pro Stunde, auf
+			// geteilten Servern ist das schnell aufgebraucht. Dann die Weiterleitung
+			// der Release-Seite auf die neueste Version lesen.
+			$weiter = self::novamira_zip_ohne_api();
+			if ( $weiter ) {
+				return $weiter;
+			}
+			$code = is_wp_error( $antwort ) ? $antwort->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code( $antwort );
+			return new WP_Error( 'bb_novamira', 'GitHub nicht erreichbar (' . $code . '), Novamira nicht geprueft.' );
 		}
 		$daten = json_decode( wp_remote_retrieve_body( $antwort ), true );
 		foreach ( isset( $daten['assets'] ) ? (array) $daten['assets'] : array() as $datei ) {
@@ -512,6 +520,18 @@ class Code_Sync_Developer_Modus {
 			}
 		}
 		return new WP_Error( 'bb_novamira', 'Im neuesten GitHub-Release liegt keine Novamira-ZIP.' );
+	}
+
+	private static function novamira_zip_ohne_api() {
+		$antwort = wp_remote_head( 'https://github.com/use-novamira/novamira/releases/latest', array( 'timeout' => 15, 'redirection' => 0 ) );
+		$ziel    = is_wp_error( $antwort ) ? '' : (string) wp_remote_retrieve_header( $antwort, 'location' );
+		if ( ! preg_match( '#^https://github\.com/use-novamira/novamira/releases/tag/(v?([0-9.]+))$#', $ziel, $treffer ) ) {
+			return null;
+		}
+		return array(
+			'version' => $treffer[2],
+			'url'     => 'https://github.com/use-novamira/novamira/releases/download/' . $treffer[1] . '/novamira-' . $treffer[2] . '.zip',
+		);
 	}
 
 	/**

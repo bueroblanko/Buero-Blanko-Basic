@@ -46,6 +46,7 @@
         <?php endforeach; ?>
         <?php
         $code_sync_namen = array(
+            'build' => 'Auf Build schalten (Baustelle)',
             'live'  => 'Auf Live schalten (nur lesend)',
             'sleep' => 'Auf Sleep schalten (Novamira nicht laden)',
             'clear' => 'Clear (Novamira löschen)',
@@ -60,7 +61,11 @@
             <?php endforeach; ?>
         </form>
         <?php endif; ?>
+        <?php if ( Code_Sync_Developer_Modus::testseite() ) : ?>
+        <p class="description">Testseite: Hier lässt sich jede Stufe setzen. Auf Kundenseiten geht nur Herunterschalten.</p>
+        <?php else : ?>
         <p class="description">Herunterschalten geht hier. Einschalten oder auf eine höhere Stufe nur per FTP über die Schalter-Datei wp-content/bb-developer-modus.php, damit ein fremdes Admin-Konto den Developer-Modus nicht einschalten kann.</p>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
    

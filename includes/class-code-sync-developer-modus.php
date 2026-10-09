@@ -608,30 +608,42 @@ class Code_Sync_Developer_Modus {
 		return self::$zustand ? self::$zustand['stufe'] : 'clear';
 	}
 
-	/** Stufen, auf die im Backend heruntergeschaltet werden darf (Hochschalten nur per FTP). */
+	/**
+	 * Stufen, auf die im Backend geschaltet werden darf: auf Kundenseiten nur
+	 * herunter, damit ein fremdes Admin-Konto den Developer-Modus nicht einschalten
+	 * kann. Testseiten (Update-Kanal Test) duerfen in jede Stufe.
+	 */
 	public static function niedrigere_stufen() {
 		$reihe = array( 'clear', 'sleep', 'live', 'build' );
-		$pos   = array_search( self::stufe(), $reihe, true );
+		if ( self::testseite() ) {
+			return array_values( array_diff( array_reverse( $reihe ), array( self::stufe() ) ) );
+		}
+		$pos = array_search( self::stufe(), $reihe, true );
 		return array_reverse( array_slice( $reihe, 0, (int) $pos ) );
 	}
 
+	public static function testseite() {
+		return defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL;
+	}
+
 	/**
-	 * Im Backend herunterschalten. Hochschalten geht absichtlich nur per FTP,
-	 * damit ein fremdes Admin-Konto den Developer-Modus nicht einschalten kann.
+	 * Stufe im Backend setzen (siehe niedrigere_stufen).
 	 */
 	public static function herunterschalten( $neu ) {
 		if ( ! in_array( $neu, self::niedrigere_stufen(), true ) ) {
 			return 'Diese Stufe ist von hier aus nicht erlaubt.';
 		}
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
-		if ( 'clear' === $neu ) {
-			// Datei samt Lizenzschluessel entfernen.
+		if ( 'clear' === $neu && ! self::testseite() ) {
+			// Datei samt Lizenzschluessel entfernen. Testseiten behalten die Datei mit
+			// stufe=clear, damit die Pro-Lizenz fuer das naechste Einschalten bleibt.
 			if ( file_exists( $datei ) && ! @unlink( $datei ) ) {
 				return 'Schalter-Datei konnte nicht geloescht werden.';
 			}
 			self::$zustand = array( 'stufe' => 'clear', 'lizenz' => '', 'grund' => '' );
 		} else {
-			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', self::$zustand['bis'] ) );
+			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
+			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
 			if ( '' !== self::$zustand['lizenz'] ) {
 				$zeilen[] = 'lizenz=' . self::$zustand['lizenz'];
 			}

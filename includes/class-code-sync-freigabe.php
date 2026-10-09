@@ -78,6 +78,7 @@ class Code_Sync_Freigabe {
 
 		if ( 'live' === $stufe ) {
 			add_action( 'wp_before_execute_ability', array( __CLASS__, 'schutz_an' ), 1 );
+			add_action( 'wp_after_execute_ability', array( __CLASS__, 'schutz_aus' ), PHP_INT_MAX );
 			add_filter( 'novamira_mcp_adapter_pre_tool_call', array( __CLASS__, 'vorpruefung' ), 10, 2 );
 			add_filter( 'wp_insert_post_empty_content', array( __CLASS__, 'post_sperre' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_delete_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
@@ -98,8 +99,20 @@ class Code_Sync_Freigabe {
 	/* Sperre waehrend Werkzeug-Aufrufen (nur Stufe live)                  */
 	/* ------------------------------------------------------------------ */
 
-	public static function schutz_an() {
-		self::$schutz = true;
+	/**
+	 * Sperre nur fuer Novamira- und BB-Werkzeuge. Werkzeuge anderer Plugins (etwa
+	 * Divi im Builder) laufen ungestoert, sonst scheitern deren Speichervorgaenge.
+	 */
+	public static function schutz_an( $name = '' ) {
+		if ( self::$mcp || 0 === strpos( (string) $name, 'novamira/' ) || 0 === strpos( (string) $name, 'bb-basic/' ) ) {
+			self::$schutz = true;
+		}
+	}
+
+	public static function schutz_aus() {
+		if ( ! self::$mcp ) {
+			self::$schutz = false;
+		}
 	}
 
 	/**
@@ -785,7 +798,7 @@ class Code_Sync_Freigabe {
 			foreach ( array_slice( $eintraege, 0, 50 ) as $eintrag ) {
 				echo '<tr><td>' . esc_html( wp_date( 'd.m.Y H:i', $eintrag['zeit'] ) ) . '</td><td>' . esc_html( $eintrag['titel'] ) . '</td><td>' . esc_html( $eintrag['aktion'] ) . '</td><td>' . esc_html( $eintrag['wer'] ) . '</td><td>';
 				if ( $eintrag['sicherung'] && self::SICHERUNG === get_post_status( $eintrag['sicherung'] ) ) {
-					echo self::knopf( 'zuruecksetzen', $eintrag['sicherung'], 'Rückgängig', 'button' ); // phpcs:ignore WordPress.Security.EscapeOutput
+					echo self::knopf( 'zuruecksetzen', $eintrag['sicherung'], 0 === strpos( $eintrag['aktion'], 'Rückgängig' ) ? 'Wiederherstellen' : 'Rückgängig', 'button' ); // phpcs:ignore WordPress.Security.EscapeOutput
 				}
 				echo '</td></tr>';
 			}

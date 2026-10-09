@@ -171,6 +171,7 @@ class Code_Sync_Developer_Modus {
 		self::updater_abhaengen();
 
 		add_action( 'admin_menu', array( __CLASS__, 'menue' ), PHP_INT_MAX );
+		add_action( 'admin_bar_menu', array( __CLASS__, 'admin_leiste' ), PHP_INT_MAX );
 		add_action( 'wp_loaded', array( __CLASS__, 'aktivieren' ) );
 	}
 
@@ -190,14 +191,27 @@ class Code_Sync_Developer_Modus {
 		}
 	}
 
+	private static function bueroblanko_konto() {
+		$mail = strtolower( (string) wp_get_current_user()->user_email );
+		$ende = '@' . CODE_SYNC_ALLOWED_MAIL;
+		return substr( $mail, -strlen( $ende ) ) === $ende;
+	}
+
 	/**
 	 * Novamira-Menue im Backend nur fuer Konten @bueroblanko.de.
 	 */
 	public static function menue() {
-		$mail = strtolower( (string) wp_get_current_user()->user_email );
-		$ende = '@' . CODE_SYNC_ALLOWED_MAIL;
-		if ( substr( $mail, -strlen( $ende ) ) !== $ende ) {
+		if ( ! self::bueroblanko_konto() ) {
 			remove_menu_page( 'novamira-connect' );
+		}
+	}
+
+	/**
+	 * „Novamira ON“ in der Admin-Leiste nur fuer Konten @bueroblanko.de.
+	 */
+	public static function admin_leiste( $leiste ) {
+		if ( ! self::bueroblanko_konto() ) {
+			$leiste->remove_node( 'novamira-mcp-status' );
 		}
 	}
 

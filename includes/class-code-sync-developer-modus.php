@@ -28,7 +28,7 @@ class Code_Sync_Developer_Modus {
 
 	const SCHALTER      = 'bb-developer-modus.php';
 	const MODUL_ORDNER  = 'bb-basic-modul';
-	const MANIFEST_URL  = 'https://module.bueroblanko.de/novamira/manifest.json';
+	const MANIFEST_URL  = 'https://bbkd.de/module/novamira/manifest.json';
 	// Oeffentlicher Ed25519-Schluessel (base64). Der private Schluessel liegt nur auf Philipps Mac.
 	// Leer = es wird nichts nachgeladen.
 	const PUBLIC_KEY    = 'L1UT2jysxP1ulgzkHe0flHBt37sR3vZvs+HQl8az8s4=';

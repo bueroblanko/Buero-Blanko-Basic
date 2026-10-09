@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten.
- * Version:           0.0.14
+ * Version:           0.0.15
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -130,8 +130,14 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 	'code-sync-plugin'
 );
 
-//Set the branch that contains the stable release.
-$myUpdateChecker->setBranch('main');
+// Update-Kanal: Alle Seiten folgen dem Branch "live". Testseiten folgen "main",
+// wenn in ihrer wp-config.php steht: define( 'BB_BASIC_UPDATE_KANAL', 'test' );
+// Ablauf siehe NEWUPDATE.md.
+define(
+	'CODE_SYNC_UPDATE_BRANCH',
+	( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) ? 'main' : 'live'
+);
+$myUpdateChecker->setBranch( CODE_SYNC_UPDATE_BRANCH );
 
 //Optional: If you're using a private repository, specify the access token like this:
 //$myUpdateChecker->setAuthentication('your-token-here');

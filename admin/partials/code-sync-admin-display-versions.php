@@ -28,5 +28,11 @@
             <h3>Divi Theme</h3>
             <p class="version-number"><?php echo esc_html($theme_version); ?></p>
         </div>
+        <div class="version-card">
+            <h3>BB Basic</h3>
+            <?php $code_sync_header = get_file_data( CODE_SYNC_PLUGIN_FILE, array( 'Version' => 'Version' ) ); ?>
+            <p class="version-number"><?php echo esc_html( $code_sync_header['Version'] ); ?></p>
+            <p>Update-Kanal: <?php echo 'main' === CODE_SYNC_UPDATE_BRANCH ? 'Test (main)' : 'Live (live)'; ?></p>
+        </div>
     </div>
    

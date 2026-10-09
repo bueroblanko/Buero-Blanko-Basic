@@ -191,11 +191,10 @@ class Code_Sync_Admin {
 	}
 
 
-	public function add_admin_body_class () {
-
-		return 'no-et-layouts';
-
-				
+	public function add_admin_body_class( $classes ) {
+		if ( ! Code_Sync::has_divi_layouts() ) {
+			$classes .= ' no-et-layouts';
+		}
+		return $classes;
 	}
-
 }

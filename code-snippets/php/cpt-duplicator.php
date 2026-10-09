@@ -43,6 +43,11 @@ function bb_duplicate_post_as_draft() {
     if (!$post) {
         wp_die(esc_html(sprintf(__('Post creation failed, could not find original post: %s', 'wpturbo'), $post_id)));
     }
+
+    // Nur kopieren, was der Nutzer selbst lesen und anlegen darf
+    if (!current_user_can('read_post', $post->ID) || !current_user_can('edit_posts')) {
+        wp_die(esc_html__('You are not allowed to duplicate this item.', 'wpturbo'));
+    }
  
     $current_user = wp_get_current_user();
     $new_post_author = $current_user->ID;

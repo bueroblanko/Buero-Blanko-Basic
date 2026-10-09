@@ -192,7 +192,7 @@ function codesync_yw_add_media_custom_field( $form_fields, $post )
 
     return $form_fields;
 }
-add_filter( 'attachment_fields_to_edit', 'codesync_yw_add_media_custom_field', null, 11 );
+add_filter( 'attachment_fields_to_edit', 'codesync_yw_add_media_custom_field', 10, 2 );
 
 
 /**
@@ -273,11 +273,11 @@ function codesync_yw_show_stockresources()
 
             $ret .= '<tr>';
             $ret .= '<td>'. wp_get_attachment_image( $stock->ID ) .'</td>';
-            $ret .= '<td>'. $resource .'</td>';
+            $ret .= '<td>'. esc_html( $resource ) .'</td>';
             
             if ( !empty( $url ) )
             {
-                $ret .= '<td><a href="'. $url .'" target="_blank" rel="nofollow noopener noreferrer">Quelle öffnen</a></td>';
+                $ret .= '<td><a href="'. esc_url( $url ) .'" target="_blank" rel="nofollow noopener noreferrer">Quelle öffnen</a></td>';
             }
             else
             {
@@ -319,10 +319,10 @@ function codesync_yw_show_single_resource( $atts )
         
         if ( !empty( $url ) )
         {
-            $return .= '<a href="'. $url .'" rel="nofollow noopener noreferrer" target="_blank">';
+            $return .= '<a href="'. esc_url( $url ) .'" rel="nofollow noopener noreferrer" target="_blank">';
         }
         
-        $return .= $rescource;
+        $return .= esc_html( $rescource );
         
         if ( !empty( $url ) )
         {

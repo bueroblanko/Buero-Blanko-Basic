@@ -255,11 +255,10 @@ EOT;
 		}
 	}
 
-	public function add_body_class ($classes) {
-		$classes[] = 'no-et-layouts';
-
+	public function add_body_class( $classes ) {
+		if ( ! Code_Sync::has_divi_layouts() ) {
+			$classes[] = 'no-et-layouts';
+		}
 		return $classes;
-
-		
 	}
 }

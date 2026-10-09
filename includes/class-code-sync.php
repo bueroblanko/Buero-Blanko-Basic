@@ -158,28 +158,7 @@ class Code_Sync {
 		$this->loader->add_action ('admin_menu', $plugin_admin, 'register_admin_page');
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
-		$existLayout = get_posts(
-		[
-
-			'post_type'   => 'et_pb_layout',
-			'post_status' => 'publish',
-			'showposts'   => 1,
-			'tax_query'   =>
-
-			[
-				[
-
-				'taxonomy' => 'layout_type',
-				'terms'    => 'layout',
-				'field'    => 'slug',
-
-				]
-			]]
-		);
-
-		if ( count( $existLayout ) < 1 ) {
-			$this->loader->add_filter('admin_body_class' , $plugin_admin, 'add_admin_body_class' );
-		};
+		$this->loader->add_filter( 'admin_body_class', $plugin_admin, 'add_admin_body_class' );
 	}
 
 	/**
@@ -205,29 +184,32 @@ class Code_Sync {
 		$this->loader->add_action( 'plugins_loaded', $plugin_public, 'execute_code_snippets' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'load_js_snippets' );
 
-		$existLayout = get_posts(
-		[
+		$this->loader->add_filter( 'body_class', $plugin_public, 'add_body_class' );
 
-			'post_type'   => 'et_pb_layout',
-			'post_status' => 'publish',
-			'showposts'   => 1,
-			'tax_query'   =>
+	}
 
-			[
-				[
-
-				'taxonomy' => 'layout_type',
-				'terms'    => 'layout',
-				'field'    => 'slug',
-
-				]
-			]]
-		);
-
-		if ( count( $existLayout ) < 1 ) {
-			$this->loader->add_filter('body_class' , $plugin_public, 'add_body_class' );
-		};
-
+	/**
+	 * Gibt es veroeffentlichte Layouts in der Divi-Bibliothek? Davon haengt die
+	 * Klasse no-et-layouts ab, die die leere Bibliothek im Builder ausblendet.
+	 * Wird erst beim Ausgeben der Body-Klassen abgefragt, weil Divi die
+	 * Taxonomie layout_type vorher noch nicht registriert hat.
+	 */
+	public static function has_divi_layouts() {
+		static $result = null;
+		if ( $result === null ) {
+			$result = count( get_posts( [
+				'post_type'   => 'et_pb_layout',
+				'post_status' => 'publish',
+				'numberposts' => 1,
+				'fields'      => 'ids',
+				'tax_query'   => [ [
+					'taxonomy' => 'layout_type',
+					'terms'    => 'layout',
+					'field'    => 'slug',
+				] ],
+			] ) ) > 0;
+		}
+		return $result;
 	}
 
 	/**

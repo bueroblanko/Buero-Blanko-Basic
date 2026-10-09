@@ -96,6 +96,12 @@ class Code_Sync_Developer_Modus {
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
 		}
+		// Manche Server starten WP-Cron nicht von selbst. Dann gleicht der naechste
+		// Aufruf des Backends ab. Novamira ist dabei nur in build/live geladen, und
+		// dort wird nichts geloescht.
+		if ( $eilig && is_admin() && ! wp_doing_ajax() ) {
+			add_action( 'admin_init', array( __CLASS__, 'abgleich' ) );
+		}
 		if ( ! wp_next_scheduled( self::CRON ) ) {
 			wp_schedule_event( time(), 'hourly', self::CRON );
 		}
@@ -652,7 +658,12 @@ class Code_Sync_Developer_Modus {
 			}
 			self::$zustand = self::schalter_lesen( $datei );
 		}
-		// Der Abgleich laeuft im naechsten Aufruf, in dem Novamira schon nicht mehr geladen ist.
+		// Einschalten sofort, damit Novamira beim naechsten Aufruf da ist. Abschalten
+		// im naechsten Aufruf, in dem Novamira schon nicht mehr geladen ist.
+		if ( in_array( $neu, array( 'build', 'live' ), true ) ) {
+			self::abgleich();
+			return '';
+		}
 		wp_clear_scheduled_hook( self::CRON );
 		wp_schedule_event( time(), 'hourly', self::CRON );
 		spawn_cron();

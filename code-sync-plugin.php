@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.16.3
+ * Version:           0.0.16.4
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -182,6 +182,14 @@ if ( 'live' !== CODE_SYNC_UPDATE_BRANCH ) {
 	if ( ! wp_next_scheduled( 'bb_basic_test_update' ) ) {
 		wp_schedule_event( time() + 60, 'bb_basic_10min', 'bb_basic_test_update' );
 	}
+	// Falls WP-Cron auf dem Server nicht von selbst laeuft: beim Oeffnen des Backends.
+	add_action( 'admin_init', function () {
+		if ( wp_doing_ajax() || get_transient( 'bb_basic_test_update_lief' ) ) {
+			return;
+		}
+		set_transient( 'bb_basic_test_update_lief', 1, 10 * MINUTE_IN_SECONDS );
+		do_action( 'bb_basic_test_update' );
+	} );
 } elseif ( wp_next_scheduled( 'bb_basic_test_update' ) ) {
 	wp_clear_scheduled_hook( 'bb_basic_test_update' );
 }

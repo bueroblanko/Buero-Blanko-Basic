@@ -321,6 +321,23 @@ class Code_Sync_Developer_Modus {
 	 * Cron: bringt den Modul-Ordner auf den Stand der Schalter-Datei.
 	 */
 	public static function abgleich() {
+		// Cron und Backend koennen gleichzeitig abgleichen. Dann wuerden zwei Aufrufe
+		// in denselben Zwischenordner entpacken und sich gegenseitig die Dateien wegnehmen.
+		$sperre = self::OPTION . '_sperre';
+		if ( ! add_option( $sperre, time(), '', 'no' ) ) {
+			if ( time() - (int) get_option( $sperre ) < 10 * MINUTE_IN_SECONDS ) {
+				return;
+			}
+			update_option( $sperre, time(), false );
+		}
+		try {
+			self::abgleich_ohne_sperre();
+		} finally {
+			delete_option( $sperre );
+		}
+	}
+
+	private static function abgleich_ohne_sperre() {
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 

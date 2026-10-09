@@ -8,6 +8,7 @@
  * Schalter-Datei (erste Zeile <?php exit; ?>, dann je Zeile schluessel=wert):
  *   stufe=build|live|sleep   build = alles erlaubt, live = nur lesende Werkzeuge,
  *                            sleep = Modul bleibt liegen, wird aber nicht geladen
+ * Ohne Schalter-Datei wird ein vorhandenes Modul geloescht.
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
  *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro
  *
@@ -32,6 +33,7 @@ class Code_Sync_Developer_Modus {
 	const PUBLIC_KEY    = '';
 	const OPTION        = 'code_sync_devmodus';
 	const CRON          = 'code_sync_devmodus_holen';
+	const CRON_WEG      = 'code_sync_devmodus_aufraeumen';
 	const LAUFZEIT_TAGE = 14;
 	const MIN_PHP       = '8.0';
 	const MIN_WP        = '6.9';
@@ -60,9 +62,15 @@ class Code_Sync_Developer_Modus {
 	public static function start() {
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		if ( ! file_exists( $datei ) ) {
-			// Normalfall auf allen Seiten.
+			// Normalfall auf allen Seiten. Liegt noch ein Modul von frueher, wird es geloescht.
 			self::$zustand = array( 'stufe' => 'aus' );
-			if ( function_exists( 'wp_next_scheduled' ) && wp_next_scheduled( self::CRON ) ) {
+			if ( is_dir( self::modul_pfad() ) ) {
+				add_action( self::CRON_WEG, array( __CLASS__, 'modul_loeschen' ) );
+				if ( ! wp_next_scheduled( self::CRON_WEG ) ) {
+					wp_schedule_single_event( time(), self::CRON_WEG );
+				}
+			}
+			if ( wp_next_scheduled( self::CRON ) ) {
 				wp_clear_scheduled_hook( self::CRON );
 			}
 			return;
@@ -317,6 +325,21 @@ class Code_Sync_Developer_Modus {
 			$status['vorher'] = '';
 		}
 		self::status_speichern( $status );
+	}
+
+	/**
+	 * Cron: Schalter-Datei ist weg, also Modul und Stand loeschen. Danach liegt kein Novamira-Code mehr auf der Seite.
+	 */
+	public static function modul_loeschen() {
+		if ( file_exists( WP_CONTENT_DIR . '/' . self::SCHALTER ) ) {
+			return;
+		}
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		global $wp_filesystem;
+		if ( WP_Filesystem() && $wp_filesystem ) {
+			$wp_filesystem->delete( self::modul_pfad(), true );
+		}
+		delete_option( self::OPTION );
 	}
 
 	/**

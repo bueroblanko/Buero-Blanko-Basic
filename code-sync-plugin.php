@@ -38,7 +38,16 @@ define( 'CODE_SYNC_VERSION', '1.0.0' );
 define('CODE_SYNC_ALLOWED_MAIL', 'bueroblanko.de');
 
 // check if there are some plugins installed if yes define the ADD_META_TAGS variable as false , true otherwise
-$plugs = ['wpmu-dev-seo/wpmu-dev-seo.php','smartcrawl-seo/wpmu-dev-seo.php', 'wordpress-seo/wp-seo.php', 'all-in-one-seo-pack/all_in_one_seo_pack.php'];
+$plugs = [
+	'wpmu-dev-seo/wpmu-dev-seo.php',                      // SmartCrawl (alt)
+	'smartcrawl-seo/wpmu-dev-seo.php',                    // SmartCrawl
+	'wordpress-seo/wp-seo.php',                           // Yoast
+	'all-in-one-seo-pack/all_in_one_seo_pack.php',        // AIOSEO
+	'all-in-one-seo-pack-pro/all_in_one_seo_pack.php',    // AIOSEO Pro
+	'seo-by-rank-math/rank-math.php',                     // Rank Math
+	'wp-seopress/seopress.php',                           // SEOPress
+	'autodescription/autodescription.php',                // The SEO Framework
+];
 if ( ! function_exists( 'is_plugin_active' ) ) {
     require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
@@ -72,6 +81,19 @@ function deactivate_code_sync() {
 }
 
 register_activation_hook( __FILE__, 'activate_code_sync' );
+
+// Die Meta-Tag-Tabelle wird nur beim Aktivieren angelegt. Bei Updates per
+// Auto-Update oder ZIP-Austausch laeuft der Aktivierungs-Hook nicht, deshalb
+// hier einmalig nachholen.
+function code_sync_maybe_create_table() {
+	if ( get_option( 'code_sync_db_version' ) === '1' ) {
+		return;
+	}
+	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-activator.php';
+	Code_Sync_Activator::activate();
+	update_option( 'code_sync_db_version', '1' );
+}
+add_action( 'plugins_loaded', 'code_sync_maybe_create_table' );
 register_deactivation_hook( __FILE__, 'deactivate_code_sync' );
 
 

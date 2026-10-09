@@ -176,9 +176,15 @@ class Code_Sync_Public {
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
 		$old_row = $wpdb->get_row("SELECT * FROM $table_name ORDER BY id DESC LIMIT 1");
-		$site_url = get_site_url();
-		$domain = str_replace( 'http://', '', $site_url);
-		$domain = str_replace( 'https://', '', $domain);
+		// og:url ist die Adresse der aktuellen Seite, nicht immer die Startseite
+		global $wp;
+		if ( is_singular() ) {
+			$site_url = get_permalink();
+		} else {
+			$site_url = home_url( empty( $wp->request ) ? '/' : user_trailingslashit( $wp->request ) );
+		}
+		$site_url = esc_url( $site_url );
+		$domain = esc_attr( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
 
 		$title = isset($old_row->title) ? esc_attr($old_row->title) : '';
 		$keywords = isset($old_row->keywords) ? esc_attr($old_row->keywords) : '';

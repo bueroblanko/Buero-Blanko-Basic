@@ -360,13 +360,25 @@ class Code_Sync_Developer_Modus {
 		self::status_speichern( $status );
 	}
 
+	/**
+	 * Testseiten (Update-Kanal „test“ in der wp-config.php) bekommen neue
+	 * Novamira-Versionen zuerst, ueber manifest-test.json.
+	 */
+	private static function manifest_url() {
+		if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
+			return str_replace( 'manifest.json', 'manifest-test.json', self::MANIFEST_URL );
+		}
+		return self::MANIFEST_URL;
+	}
+
 	private static function modul_holen_intern( $status ) {
 		if ( '' === self::PUBLIC_KEY ) {
 			return 'Kein Signaturschluessel eingetragen.';
 		}
 
-		$antwort = wp_remote_get( self::MANIFEST_URL, array( 'timeout' => 15 ) );
-		$sig     = wp_remote_get( self::MANIFEST_URL . '.sig', array( 'timeout' => 15 ) );
+		$url     = self::manifest_url();
+		$antwort = wp_remote_get( $url, array( 'timeout' => 15 ) );
+		$sig     = wp_remote_get( $url . '.sig', array( 'timeout' => 15 ) );
 		if ( is_wp_error( $antwort ) || is_wp_error( $sig ) || 200 !== wp_remote_retrieve_response_code( $antwort ) || 200 !== wp_remote_retrieve_response_code( $sig ) ) {
 			return 'Manifest nicht erreichbar.';
 		}

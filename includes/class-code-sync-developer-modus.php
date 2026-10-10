@@ -746,7 +746,7 @@ class Code_Sync_Developer_Modus {
 		$namen   = array(
 			'clear' => 'Clear (kein Novamira von BB Basic auf der Seite)',
 			'sleep' => 'Sleep (Novamira liegt bereit, wird nicht geladen)',
-			'live'  => 'Live (lesen, Änderungen nur über Entwurf und Freigabe)',
+			'live'  => 'Live mit Freigabe (Änderungen nur als Entwurf, du gibst frei)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
 		if ( 'sleep' === $zustand['stufe'] && '' === self::version( self::NOVAMIRA ) ) {

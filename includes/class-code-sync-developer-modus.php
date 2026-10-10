@@ -94,6 +94,8 @@ class Code_Sync_Developer_Modus {
 		$an      = in_array( self::$zustand['stufe'], array( 'build', 'live' ), true );
 		$fehlt   = $status['aufraeumen'] || ( $an && ! file_exists( self::hauptdatei( self::NOVAMIRA ) ) );
 		$fehlt   = $fehlt || ( $an && self::fremd_aktiv() );
+		// Neue oder geaenderte Lizenz-Zeile: Pro holen bzw. Lizenz neu aktivieren.
+		$fehlt   = $fehlt || ( $an && '' !== self::$zustand['lizenz'] && ( self::$zustand['lizenz'] !== $status['lizenz'] || ! file_exists( self::hauptdatei( self::PRO ) ) ) );
 		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
@@ -288,6 +290,9 @@ class Code_Sync_Developer_Modus {
 			'bis'    => $bis,
 			'lizenz' => isset( $werte['lizenz'] ) ? $werte['lizenz'] : '',
 			'grund'  => '',
+			// Nur zum Zurueckschreiben in herunterschalten(), gelesen in code-sync-plugin.php.
+			'kanal'  => isset( $werte['kanal'] ) ? $werte['kanal'] : '',
+			'zweig'  => isset( $werte['zweig'] ) ? $werte['zweig'] : '',
 		);
 		if ( in_array( $stufe, array( 'build', 'live' ), true ) && time() > $bis ) {
 			$zustand['stufe'] = 'sleep';
@@ -717,8 +722,10 @@ class Code_Sync_Developer_Modus {
 		} else {
 			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
 			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
-			if ( '' !== self::$zustand['lizenz'] ) {
-				$zeilen[] = 'lizenz=' . self::$zustand['lizenz'];
+			foreach ( array( 'lizenz', 'kanal', 'zweig' ) as $schluessel ) {
+				if ( ! empty( self::$zustand[ $schluessel ] ) ) {
+					$zeilen[] = $schluessel . '=' . self::$zustand[ $schluessel ];
+				}
 			}
 			if ( false === @file_put_contents( $datei, implode( "\n", $zeilen ) . "\n" ) ) {
 				return 'Schalter-Datei konnte nicht geschrieben werden.';

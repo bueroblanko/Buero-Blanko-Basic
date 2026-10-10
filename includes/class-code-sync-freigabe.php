@@ -216,7 +216,7 @@ class Code_Sync_Freigabe {
 	}
 
 	public static function anleitung( $text ) {
-		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools, then call bb-basic/freigabe-anfragen (entwurf_id, notiz). A Buero Blanko admin reviews and approves it in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
+		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools (new images: bb-basic/bild-hochladen), then call bb-basic/freigabe-anfragen (entwurf_id, notiz). A Buero Blanko admin reviews and approves it in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -624,6 +624,37 @@ class Code_Sync_Freigabe {
 			'meta'                => $meta( true ),
 		) );
 
+		wp_register_ability( 'bb-basic/bild-hochladen', array(
+			'label'               => 'Bild hochladen',
+			'description'         => 'Add an image (JPG, PNG, WebP or GIF, max 20 MB) to the media library, from a public https URL or as base64. Published pages are not changed; use the returned attachment_id or url in a BB draft and request approval as usual.',
+			'category'            => 'bb-basic',
+			'input_schema'        => array(
+				'type'       => 'object',
+				'properties' => array(
+					'url'        => array( 'type' => 'string', 'description' => 'Public https URL of the image.' ),
+					'base64'     => array( 'type' => 'string', 'description' => 'Image file as base64, instead of url.' ),
+					'dateiname'  => array( 'type' => 'string', 'description' => 'File name with extension, e.g. zertifikate.jpg. Required with base64.' ),
+					'titel'      => array( 'type' => 'string' ),
+					'alt'        => array( 'type' => 'string', 'description' => 'Alt text (German).' ),
+					'entwurf_id' => array( 'type' => 'integer', 'description' => 'Optional BB draft to attach the image to.' ),
+				),
+			),
+			'output_schema'       => array(
+				'type'       => 'object',
+				'properties' => array(
+					'attachment_id' => array( 'type' => 'integer' ),
+					'url'           => array( 'type' => 'string' ),
+					'breite'        => array( 'type' => 'integer' ),
+					'hoehe'         => array( 'type' => 'integer' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				return self::bild_hochladen( (array) $input );
+			},
+			'permission_callback' => array( __CLASS__, 'darf' ),
+			'meta'                => $meta( false ),
+		) );
+
 		wp_register_ability( 'bb-basic/freigabe-anfragen', array(
 			'label'               => 'Freigabe anfragen',
 			'description'         => 'Mark a BB draft as ready for approval, with a short note (German) describing the change for the reviewer. A Buero Blanko admin then approves or discards it under Tools > Freigaben.',
@@ -655,6 +686,90 @@ class Code_Sync_Freigabe {
 	/* ------------------------------------------------------------------ */
 	/* Backend: Werkzeuge → Freigaben                                      */
 	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Bild in die Mediathek. Aendert keine veroeffentlichte Seite, deshalb auch in Stufe live.
+	 * Nur Rasterbilder (kein SVG), Download nur ueber wp_safe_remote_get (keine internen Adressen).
+	 */
+	public static function bild_hochladen( $input ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$typen = array( 'jpg|jpeg|jpe' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif' );
+		$max   = 20 * MB_IN_BYTES;
+		$url   = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
+		$name  = isset( $input['dateiname'] ) ? sanitize_file_name( (string) $input['dateiname'] ) : '';
+
+		if ( '' !== $url ) {
+			if ( 0 !== strpos( $url, 'https://' ) ) {
+				return new WP_Error( 'bb_bild', 'Only https URLs are allowed.' );
+			}
+			$tmp = download_url( $url, 60 );
+			if ( is_wp_error( $tmp ) ) {
+				return $tmp;
+			}
+			if ( '' === $name ) {
+				$name = sanitize_file_name( basename( (string) wp_parse_url( $url, PHP_URL_PATH ) ) );
+			}
+		} elseif ( ! empty( $input['base64'] ) ) {
+			$daten = base64_decode( preg_replace( '#^data:[^,]*,#', '', (string) $input['base64'] ), true );
+			if ( false === $daten || '' === $name ) {
+				return new WP_Error( 'bb_bild', 'Invalid base64 or missing dateiname.' );
+			}
+			$tmp = wp_tempnam( $name );
+			file_put_contents( $tmp, $daten );
+		} else {
+			return new WP_Error( 'bb_bild', 'Give url or base64.' );
+		}
+
+		if ( filesize( $tmp ) > $max ) {
+			wp_delete_file( $tmp );
+			return new WP_Error( 'bb_bild', 'Image is larger than 20 MB.' );
+		}
+		// Endung nach dem echten Inhalt, nicht nach dem Namen.
+		$info = wp_get_image_mime( $tmp );
+		$ext  = $info ? array_search( $info, $typen, true ) : false;
+		if ( ! $ext ) {
+			wp_delete_file( $tmp );
+			return new WP_Error( 'bb_bild', 'Only JPG, PNG, WebP or GIF images are allowed.' );
+		}
+		$ext  = strtok( $ext, '|' );
+		$name = preg_replace( '#\.[^.]*$#', '', $name ? $name : 'bild' ) . '.' . $ext;
+
+		$entwurf = isset( $input['entwurf_id'] ) ? (int) $input['entwurf_id'] : 0;
+		if ( $entwurf && ! self::ist_entwurf( $entwurf ) ) {
+			$entwurf = 0;
+		}
+
+		self::$intern = true;
+		try {
+			$id = media_handle_sideload(
+				array( 'name' => $name, 'tmp_name' => $tmp ),
+				$entwurf,
+				isset( $input['titel'] ) ? sanitize_text_field( (string) $input['titel'] ) : null,
+				array( 'post_status' => 'inherit' )
+			);
+			if ( ! is_wp_error( $id ) && ! empty( $input['alt'] ) ) {
+				update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( (string) $input['alt'] ) );
+			}
+		} finally {
+			self::$intern = false;
+		}
+		if ( file_exists( $tmp ) ) {
+			wp_delete_file( $tmp );
+		}
+		if ( is_wp_error( $id ) ) {
+			return $id;
+		}
+		$meta = wp_get_attachment_metadata( $id );
+		return array(
+			'attachment_id' => (int) $id,
+			'url'           => (string) wp_get_attachment_url( $id ),
+			'breite'        => isset( $meta['width'] ) ? (int) $meta['width'] : 0,
+			'hoehe'         => isset( $meta['height'] ) ? (int) $meta['height'] : 0,
+		);
+	}
 
 	public static function bueroblanko_konto() {
 		$mail = strtolower( (string) wp_get_current_user()->user_email );

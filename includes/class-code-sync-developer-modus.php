@@ -7,7 +7,8 @@
  *
  * Schalter-Datei (erste Zeile <?php exit; ?>, dann je Zeile schluessel=wert):
  *   stufe=build|live|sleep|clear
- *                            build = alles erlaubt, live = nur lesende Werkzeuge,
+ *                            build = alles erlaubt, live = lesen und Entwuerfe bearbeiten
+ *                            (Freigabeweg, siehe class-code-sync-freigabe.php),
  *                            sleep = Dateien bleiben liegen, werden aber nicht geladen,
  *                            clear = Dateien werden geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
@@ -92,6 +93,9 @@ class Code_Sync_Developer_Modus {
 		$naechster = wp_next_scheduled( self::CRON );
 		$an      = in_array( self::$zustand['stufe'], array( 'build', 'live' ), true );
 		$fehlt   = $status['aufraeumen'] || ( $an && ! file_exists( self::hauptdatei( self::NOVAMIRA ) ) );
+		$fehlt   = $fehlt || ( $an && self::fremd_aktiv() );
+		// Neue oder geaenderte Lizenz-Zeile: Pro holen bzw. Lizenz neu aktivieren.
+		$fehlt   = $fehlt || ( $an && '' !== self::$zustand['lizenz'] && ( self::$zustand['lizenz'] !== $status['lizenz'] || ! file_exists( self::hauptdatei( self::PRO ) ) ) );
 		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
@@ -109,6 +113,22 @@ class Code_Sync_Developer_Modus {
 		if ( in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
 			self::laden();
 		}
+	}
+
+	/** Novamira oder Pro, aber nicht aus unserem Modul-Ordner? */
+	private static function fremd( $plugin ) {
+		return in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true )
+			&& false !== strpos( $plugin, '/' )
+			&& 0 !== strpos( $plugin, self::ORDNER . '/' );
+	}
+
+	private static function fremd_aktiv() {
+		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
+			if ( self::fremd( $plugin ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public static function modul_dir() {
@@ -136,8 +156,12 @@ class Code_Sync_Developer_Modus {
 		}
 		// Ist Novamira zusaetzlich als normales Plugin aktiv, laden wir unsere Kopie nicht.
 		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
-			if ( in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true ) && 0 !== strpos( $plugin, self::ORDNER . '/' ) ) {
+			if ( self::fremd( $plugin ) ) {
 				self::$hinweis = 'Novamira ist zusaetzlich als normales Plugin aktiv (' . $plugin . '). Die Kopie in BB Basic wird deshalb nicht geladen.';
+				// Die Live-Sperre gilt trotzdem, sonst koennte dieses Novamira global aendern.
+				if ( 'live' === self::$zustand['stufe'] ) {
+					add_action( 'wp_abilities_api_init', array( __CLASS__, 'live_sperre' ), PHP_INT_MAX );
+				}
 				return;
 			}
 		}
@@ -172,6 +196,7 @@ class Code_Sync_Developer_Modus {
 
 		add_action( 'admin_menu', array( __CLASS__, 'menue' ), PHP_INT_MAX );
 		add_action( 'admin_bar_menu', array( __CLASS__, 'admin_leiste' ), PHP_INT_MAX );
+		add_action( 'admin_init', array( __CLASS__, 'hinweise_ausblenden' ) );
 		add_action( 'wp_loaded', array( __CLASS__, 'aktivieren' ) );
 	}
 
@@ -209,6 +234,17 @@ class Code_Sync_Developer_Modus {
 	/**
 	 * „Novamira ON“ in der Admin-Leiste nur fuer Konten @bueroblanko.de.
 	 */
+	/** Novamira-Hinweise und -Stile sehen nur @bueroblanko.de-Konten. */
+	public static function hinweise_ausblenden() {
+		if ( self::bueroblanko_konto() ) {
+			return;
+		}
+		remove_action( 'admin_notices', 'Novamira\\Pro\\render_activation_advisor' );
+		remove_action( 'admin_notices', 'Novamira\\Pro\\render_domain_mismatch_notice' );
+		remove_action( 'admin_notices', 'novamira_render_mcp_dependency_notice' );
+		remove_action( 'admin_head', 'novamira_render_admin_bar_toggle_assets' );
+	}
+
 	public static function admin_leiste( $leiste ) {
 		if ( ! self::bueroblanko_konto() ) {
 			$leiste->remove_node( 'novamira-mcp-status' );
@@ -266,6 +302,9 @@ class Code_Sync_Developer_Modus {
 			'bis'    => $bis,
 			'lizenz' => isset( $werte['lizenz'] ) ? $werte['lizenz'] : '',
 			'grund'  => '',
+			// Nur zum Zurueckschreiben in herunterschalten(), gelesen in code-sync-plugin.php.
+			'kanal'  => isset( $werte['kanal'] ) ? $werte['kanal'] : '',
+			'zweig'  => isset( $werte['zweig'] ) ? $werte['zweig'] : '',
 		);
 		if ( in_array( $stufe, array( 'build', 'live' ), true ) && time() > $bis ) {
 			$zustand['stufe'] = 'sleep';
@@ -370,6 +409,15 @@ class Code_Sync_Developer_Modus {
 	 */
 	private static function alte_plugins_entfernen( &$status ) {
 		$alte = array_values( array_intersect( self::$alt, $status['installiert'] ) );
+		// In build und live loest BB Basic auch ein von Hand installiertes Novamira ab
+		// (Entscheidung 10.10.2026): Novamira soll nicht in der Plugin-Liste stehen.
+		if ( in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
+			foreach ( array_keys( get_plugins() ) as $plugin ) {
+				if ( self::fremd( $plugin ) && ! in_array( $plugin, $alte, true ) ) {
+					$alte[] = $plugin;
+				}
+			}
+		}
 		if ( empty( $alte ) ) {
 			$status['installiert'] = array();
 			return '';
@@ -429,6 +477,11 @@ class Code_Sync_Developer_Modus {
 		}
 
 		// Pro bekommt die Lizenz einmal, und wieder, wenn sie sich in der Schalter-Datei aendert.
+		// Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung
+		// (der naechste Backend-Aufruf gleicht deshalb nach 5 Minuten erneut ab).
+		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && isset( self::$geladen[ self::PRO ] ) && ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+			return 'Novamira Pro ist geladen, bietet aber keine Lizenz-Aktivierung an (Version ' . self::version( self::PRO ) . ').';
+		}
 		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
 			try {
 				\Novamira\Pro\activate_new_license_key( $lizenz );
@@ -636,6 +689,11 @@ class Code_Sync_Developer_Modus {
 				return true;
 			}
 		}
+		// Freigabeweg: Entwurf anlegen und Entwuerfe bearbeiten (Sperre fuer
+		// veroeffentlichte Inhalte siehe Code_Sync_Freigabe).
+		if ( class_exists( 'Code_Sync_Freigabe' ) && Code_Sync_Freigabe::live_erlaubt( $name ) ) {
+			return true;
+		}
 		// Lesende Werkzeuge aus dem WordPress-Kern. Werkzeuge anderer Plugins sind
 		// ebenfalls gesperrt, weil Novamira sie sonst ueber MCP ausfuehren koennte.
 		return 0 === strpos( $name, 'core/get-' );
@@ -660,7 +718,7 @@ class Code_Sync_Developer_Modus {
 	}
 
 	public static function testseite() {
-		return defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL;
+		return defined( 'CODE_SYNC_UPDATE_BRANCH' ) && 'live' !== CODE_SYNC_UPDATE_BRANCH;
 	}
 
 	/**
@@ -681,8 +739,10 @@ class Code_Sync_Developer_Modus {
 		} else {
 			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
 			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
-			if ( '' !== self::$zustand['lizenz'] ) {
-				$zeilen[] = 'lizenz=' . self::$zustand['lizenz'];
+			foreach ( array( 'lizenz', 'kanal', 'zweig' ) as $schluessel ) {
+				if ( ! empty( self::$zustand[ $schluessel ] ) ) {
+					$zeilen[] = $schluessel . '=' . self::$zustand[ $schluessel ];
+				}
 			}
 			if ( false === @file_put_contents( $datei, implode( "\n", $zeilen ) . "\n" ) ) {
 				return 'Schalter-Datei konnte nicht geschrieben werden.';
@@ -710,7 +770,7 @@ class Code_Sync_Developer_Modus {
 		$namen   = array(
 			'clear' => 'Clear (kein Novamira von BB Basic auf der Seite)',
 			'sleep' => 'Sleep (Novamira liegt bereit, wird nicht geladen)',
-			'live'  => 'Live (nur lesend)',
+			'live'  => 'Live mit Freigabe (Änderungen nur als Entwurf, du gibst frei)',
 			'build' => 'Build (Baustelle, alles erlaubt)',
 		);
 		if ( 'sleep' === $zustand['stufe'] && '' === self::version( self::NOVAMIRA ) ) {

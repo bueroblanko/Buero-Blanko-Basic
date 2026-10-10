@@ -4,6 +4,8 @@ Seit 0.0.15 gibt es zwei Update-Kanäle:
 
 - `main`: liest nur Testseiten. Testseite ist eine Seite mit dieser Zeile in der
   `wp-config.php`: `define( 'BB_BASIC_UPDATE_KANAL', 'test' );`
+  Ab 0.0.17.7 geht es auch ohne `wp-config.php`: Zeile `kanal=test` (und optional
+  `zweig=name-des-branches`) in der Schalter-Datei `wp-content/bb-developer-modus.php`.
 - `live`: lesen alle anderen Seiten.
 
 Der Update-Checker liest `code-sync-plugin.php` auf dem jeweiligen Branch. Steht dort

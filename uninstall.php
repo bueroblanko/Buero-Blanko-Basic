@@ -30,6 +30,14 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
+// Liegt BB Basic ein zweites Mal in einem anderen Ordner und ist dort aktiv (z. B.
+// buero-blanko-basic neben Buero-Blanko-Basic), gehoeren die Daten dieser Kopie. Nichts loeschen.
+foreach ( (array) get_option( 'active_plugins', array() ) as $bb_plugin ) {
+	if ( 'code-sync-plugin.php' === basename( $bb_plugin ) && WP_UNINSTALL_PLUGIN !== $bb_plugin ) {
+		return;
+	}
+}
+
 // Beim Loeschen des Plugins die eigenen Daten entfernen.
 global $wpdb;
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}code_sync_meta_tags" );

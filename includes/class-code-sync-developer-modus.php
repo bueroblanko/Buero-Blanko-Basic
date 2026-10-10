@@ -465,6 +465,11 @@ class Code_Sync_Developer_Modus {
 		}
 
 		// Pro bekommt die Lizenz einmal, und wieder, wenn sie sich in der Schalter-Datei aendert.
+		// Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung
+		// (der naechste Backend-Aufruf gleicht deshalb nach 5 Minuten erneut ab).
+		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && isset( self::$geladen[ self::PRO ] ) && ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+			return 'Novamira Pro ist geladen, bietet aber keine Lizenz-Aktivierung an (Version ' . self::version( self::PRO ) . ').';
+		}
 		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
 			try {
 				\Novamira\Pro\activate_new_license_key( $lizenz );

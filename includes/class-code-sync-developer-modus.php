@@ -93,6 +93,7 @@ class Code_Sync_Developer_Modus {
 		$naechster = wp_next_scheduled( self::CRON );
 		$an      = in_array( self::$zustand['stufe'], array( 'build', 'live' ), true );
 		$fehlt   = $status['aufraeumen'] || ( $an && ! file_exists( self::hauptdatei( self::NOVAMIRA ) ) );
+		$fehlt   = $fehlt || ( $an && self::fremd_aktiv() );
 		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
@@ -110,6 +111,22 @@ class Code_Sync_Developer_Modus {
 		if ( in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
 			self::laden();
 		}
+	}
+
+	/** Novamira oder Pro, aber nicht aus unserem Modul-Ordner? */
+	private static function fremd( $plugin ) {
+		return in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true )
+			&& false !== strpos( $plugin, '/' )
+			&& 0 !== strpos( $plugin, self::ORDNER . '/' );
+	}
+
+	private static function fremd_aktiv() {
+		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
+			if ( self::fremd( $plugin ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public static function modul_dir() {
@@ -137,7 +154,7 @@ class Code_Sync_Developer_Modus {
 		}
 		// Ist Novamira zusaetzlich als normales Plugin aktiv, laden wir unsere Kopie nicht.
 		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
-			if ( in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true ) && 0 !== strpos( $plugin, self::ORDNER . '/' ) ) {
+			if ( self::fremd( $plugin ) ) {
 				self::$hinweis = 'Novamira ist zusaetzlich als normales Plugin aktiv (' . $plugin . '). Die Kopie in BB Basic wird deshalb nicht geladen.';
 				// Die Live-Sperre gilt trotzdem, sonst koennte dieses Novamira global aendern.
 				if ( 'live' === self::$zustand['stufe'] ) {
@@ -375,6 +392,15 @@ class Code_Sync_Developer_Modus {
 	 */
 	private static function alte_plugins_entfernen( &$status ) {
 		$alte = array_values( array_intersect( self::$alt, $status['installiert'] ) );
+		// In build und live loest BB Basic auch ein von Hand installiertes Novamira ab
+		// (Entscheidung 10.10.2026): Novamira soll nicht in der Plugin-Liste stehen.
+		if ( in_array( self::$zustand['stufe'], array( 'build', 'live' ), true ) ) {
+			foreach ( array_keys( get_plugins() ) as $plugin ) {
+				if ( self::fremd( $plugin ) && ! in_array( $plugin, $alte, true ) ) {
+					$alte[] = $plugin;
+				}
+			}
+		}
 		if ( empty( $alte ) ) {
 			$status['installiert'] = array();
 			return '';

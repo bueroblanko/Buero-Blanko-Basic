@@ -877,6 +877,10 @@ class Code_Sync_Freigabe {
 		if ( ! is_preview() || ! $id || ! self::ist_entwurf( $id ) || ! self::bueroblanko_konto() ) {
 			return;
 		}
+		// Im Divi-Builder nicht zeigen, sonst liegt die Leiste ueber Divis eigener Leiste.
+		if ( ! empty( $_GET['et_fb'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			return;
+		}
 		$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
 		$konflikt = self::konflikt( $id );
 		$notiz    = (string) get_post_meta( $id, self::NOTIZ, true );

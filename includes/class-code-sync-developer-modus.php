@@ -666,7 +666,7 @@ class Code_Sync_Developer_Modus {
 	}
 
 	public static function testseite() {
-		return defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL;
+		return defined( 'CODE_SYNC_UPDATE_BRANCH' ) && 'live' !== CODE_SYNC_UPDATE_BRANCH;
 	}
 
 	/**

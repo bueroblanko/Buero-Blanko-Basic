@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.17.6
+ * Version:           0.0.17.7
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -146,7 +146,18 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 // define( 'BB_BASIC_TEST_ZWEIG', 'name-des-branches' );
 // Ablauf siehe NEWUPDATE.md.
 $code_sync_zweig = 'live';
-if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
+// Alternativ zur wp-config.php: Die Schalter-Datei des Developer-Modus
+// (wp-content/bb-developer-modus.php) kann Zeilen "kanal=test" und "zweig=..." enthalten.
+$code_sync_schalter = array();
+if ( is_readable( WP_CONTENT_DIR . '/bb-developer-modus.php' ) ) {
+	foreach ( (array) @file( WP_CONTENT_DIR . '/bb-developer-modus.php', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES ) as $code_sync_zeile ) {
+		$code_sync_teile = explode( '=', trim( $code_sync_zeile ), 2 );
+		if ( 2 === count( $code_sync_teile ) ) {
+			$code_sync_schalter[ strtolower( trim( $code_sync_teile[0] ) ) ] = trim( $code_sync_teile[1] );
+		}
+	}
+}
+if ( ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) || ( isset( $code_sync_schalter['kanal'] ) && 'test' === strtolower( $code_sync_schalter['kanal'] ) ) ) {
 	$code_sync_zweig = 'main';
 	// Nur Testseiten: PHP-Fehler in wp-content/bb-basic-log/fehler.log schreiben, auch
 	// wenn WP_DEBUG aus ist. Der Ordner ist fuer Besucher gesperrt.
@@ -172,6 +183,9 @@ if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
 	// Eine per zweig.txt gemerkte Wahl geht vor die Konstante, damit sich der Branch
 	// ohne Eingriff in die wp-config.php umstellen laesst.
 	$code_sync_test_zweig = (string) get_option( 'code_sync_test_zweig', '' );
+	if ( '' === $code_sync_test_zweig && ! empty( $code_sync_schalter['zweig'] ) ) {
+		$code_sync_test_zweig = $code_sync_schalter['zweig'];
+	}
 	if ( '' === $code_sync_test_zweig && defined( 'BB_BASIC_TEST_ZWEIG' ) ) {
 		$code_sync_test_zweig = (string) BB_BASIC_TEST_ZWEIG;
 	}

@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.17.17
+ * Version:           0.0.17.18
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -134,11 +134,23 @@ function run_code_sync() {
 run_code_sync();
 
 require 'plugin-update-checker/plugin-update-checker.php';
-$myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
-	'https://github.com/bueroblanko/Buero-Blanko-Basic',
-	__FILE__,
-	'code-sync-plugin'
-);
+// Update-Quelle ohne GitHub-API (deren Limit von 60 Abfragen pro Stunde je
+// Server-IP ist auf geteilten Servern schnell aufgebraucht), siehe
+// includes/class-code-sync-update-quelle.php.
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-update-quelle.php';
+if ( class_exists( 'Code_Sync_Update_Quelle', false ) && class_exists( 'Puc_v4p11_Vcs_PluginUpdateChecker' ) ) {
+	$myUpdateChecker = new Puc_v4p11_Vcs_PluginUpdateChecker(
+		new Code_Sync_Update_Quelle( 'https://github.com/bueroblanko/Buero-Blanko-Basic' ),
+		__FILE__,
+		'code-sync-plugin'
+	);
+} else {
+	$myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
+		'https://github.com/bueroblanko/Buero-Blanko-Basic',
+		__FILE__,
+		'code-sync-plugin'
+	);
+}
 
 // Update-Kanal: Alle Seiten folgen dem Branch "live". Testseiten folgen "main",
 // wenn in ihrer wp-config.php steht: define( 'BB_BASIC_UPDATE_KANAL', 'test' );

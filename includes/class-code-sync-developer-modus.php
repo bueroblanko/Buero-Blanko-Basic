@@ -196,6 +196,7 @@ class Code_Sync_Developer_Modus {
 
 		add_action( 'admin_menu', array( __CLASS__, 'menue' ), PHP_INT_MAX );
 		add_action( 'admin_bar_menu', array( __CLASS__, 'admin_leiste' ), PHP_INT_MAX );
+		add_action( 'admin_init', array( __CLASS__, 'hinweise_ausblenden' ) );
 		add_action( 'wp_loaded', array( __CLASS__, 'aktivieren' ) );
 	}
 
@@ -233,6 +234,17 @@ class Code_Sync_Developer_Modus {
 	/**
 	 * „Novamira ON“ in der Admin-Leiste nur fuer Konten @bueroblanko.de.
 	 */
+	/** Novamira-Hinweise und -Stile sehen nur @bueroblanko.de-Konten. */
+	public static function hinweise_ausblenden() {
+		if ( self::bueroblanko_konto() ) {
+			return;
+		}
+		remove_action( 'admin_notices', 'Novamira\\Pro\\render_activation_advisor' );
+		remove_action( 'admin_notices', 'Novamira\\Pro\\render_domain_mismatch_notice' );
+		remove_action( 'admin_notices', 'novamira_render_mcp_dependency_notice' );
+		remove_action( 'admin_head', 'novamira_render_admin_bar_toggle_assets' );
+	}
+
 	public static function admin_leiste( $leiste ) {
 		if ( ! self::bueroblanko_konto() ) {
 			$leiste->remove_node( 'novamira-mcp-status' );

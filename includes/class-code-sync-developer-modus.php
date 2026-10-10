@@ -139,6 +139,10 @@ class Code_Sync_Developer_Modus {
 		foreach ( (array) get_option( 'active_plugins', array() ) as $plugin ) {
 			if ( in_array( basename( $plugin ), array( 'novamira.php', 'novamira-pro.php' ), true ) && 0 !== strpos( $plugin, self::ORDNER . '/' ) ) {
 				self::$hinweis = 'Novamira ist zusaetzlich als normales Plugin aktiv (' . $plugin . '). Die Kopie in BB Basic wird deshalb nicht geladen.';
+				// Die Live-Sperre gilt trotzdem, sonst koennte dieses Novamira global aendern.
+				if ( 'live' === self::$zustand['stufe'] ) {
+					add_action( 'wp_abilities_api_init', array( __CLASS__, 'live_sperre' ), PHP_INT_MAX );
+				}
 				return;
 			}
 		}

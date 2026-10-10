@@ -75,6 +75,7 @@ class Code_Sync_Freigabe {
 		add_filter( 'page_row_actions', array( __CLASS__, 'zeilen_aktion' ), 10, 2 );
 		add_filter( 'post_row_actions', array( __CLASS__, 'zeilen_aktion' ), 10, 2 );
 		add_filter( 'wp_insert_post_data', array( __CLASS__, 'post_schutz' ), PHP_INT_MAX, 2 );
+		add_action( 'wp_footer', array( __CLASS__, 'vorschau_leiste' ) );
 
 		if ( 'live' === $stufe ) {
 			add_action( 'wp_before_execute_ability', array( __CLASS__, 'schutz_an' ), 1 );
@@ -714,9 +715,10 @@ class Code_Sync_Freigabe {
 		if ( ! self::bueroblanko_konto() || ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( $_POST['_wpnonce'] ), 'bb_freigabe' ) ) {
 			wp_die( 'Nicht erlaubt.' );
 		}
-		$was    = isset( $_POST['was'] ) ? sanitize_key( $_POST['was'] ) : '';
-		$id     = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$fehler = 'Unbekannte Aktion.';
+		$was      = isset( $_POST['was'] ) ? sanitize_key( $_POST['was'] ) : '';
+		$id       = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
+		$fehler   = 'Unbekannte Aktion.';
 		if ( in_array( $was, array( 'freigeben', 'trotzdem', 'verwerfen' ), true ) && ! self::ist_entwurf( $id ) ) {
 			$fehler = 'Dieser Entwurf existiert nicht mehr.';
 		} elseif ( 'freigeben' === $was || 'trotzdem' === $was ) {
@@ -727,6 +729,10 @@ class Code_Sync_Freigabe {
 			$fehler = self::zuruecksetzen( $id );
 		}
 		$ziel = add_query_arg( array( 'page' => self::SEITE, 'bb_ok' => $fehler ? 0 : 1 ), admin_url( 'tools.php' ) );
+		// Aus der Vorschau freigegeben: gleich die Live-Seite zeigen.
+		if ( ! $fehler && ! empty( $_POST['aus_vorschau'] ) && in_array( $was, array( 'freigeben', 'trotzdem' ), true ) && $original ) {
+			$ziel = get_permalink( $original );
+		}
 		if ( $fehler ) {
 			set_transient( 'bb_freigabe_fehler_' . get_current_user_id(), $fehler, 60 );
 		}
@@ -734,14 +740,50 @@ class Code_Sync_Freigabe {
 		exit;
 	}
 
-	private static function knopf( $was, $id, $text, $klasse = 'button' ) {
-		$html  = '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline">';
+	private static function knopf( $was, $id, $text, $klasse = 'button', $aus_vorschau = false ) {
+		$html  = '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;margin:0">';
 		$html .= wp_nonce_field( 'bb_freigabe', '_wpnonce', true, false );
+		if ( $aus_vorschau ) {
+			$html .= '<input type="hidden" name="aus_vorschau" value="1">';
+		}
 		$html .= '<input type="hidden" name="action" value="bb_freigabe">';
 		$html .= '<input type="hidden" name="was" value="' . esc_attr( $was ) . '">';
 		$html .= '<input type="hidden" name="id" value="' . (int) $id . '">';
 		$html .= '<button type="submit" class="' . esc_attr( $klasse ) . '">' . esc_html( $text ) . '</button>';
 		return $html . '</form> ';
+	}
+
+	/**
+	 * Leiste unten in der Vorschau eines BB-Entwurfs: Freigeben oder Verwerfen,
+	 * ohne zurueck ins Backend zu muessen.
+	 */
+	public static function vorschau_leiste() {
+		$id = (int) get_queried_object_id();
+		if ( ! is_preview() || ! $id || ! self::ist_entwurf( $id ) || ! self::bueroblanko_konto() ) {
+			return;
+		}
+		$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
+		$konflikt = self::konflikt( $id );
+		$notiz    = (string) get_post_meta( $id, self::NOTIZ, true );
+		$knopf    = 'font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;cursor:pointer;margin-left:8px;';
+		echo '<div id="bb-freigabe-leiste" style="position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#1d2327;color:#fff;font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;box-shadow:0 -2px 8px rgba(0,0,0,.3)">';
+		echo '<div style="flex:1;min-width:200px"><strong>Vorschau BB-Entwurf zu „' . esc_html( get_the_title( $original ) ) . '“</strong>';
+		if ( '' !== $notiz ) {
+			echo '<br>' . esc_html( $notiz );
+		}
+		if ( $konflikt ) {
+			echo '<br><span style="color:#f86368">Live-Seite wurde seitdem geändert. Beim Freigeben gehen diese Änderungen verloren.</span>';
+		}
+		echo '</div><div style="display:flex;flex-wrap:wrap;align-items:center">';
+		echo '<a href="' . esc_url( get_permalink( $original ) ) . '" style="color:#fff;margin-left:8px">Live-Seite</a>';
+		echo '<a href="' . esc_url( add_query_arg( 'page', self::SEITE, admin_url( 'tools.php' ) ) ) . '" style="color:#fff;margin-left:12px">Zu den Freigaben</a>';
+		// phpcs:disable WordPress.Security.EscapeOutput
+		echo self::knopf( 'verwerfen', $id, 'Verwerfen', '', true );
+		echo self::knopf( $konflikt ? 'trotzdem' : 'freigeben', $id, $konflikt ? 'Trotzdem freigeben' : 'Freigeben', '', true );
+		// phpcs:enable
+		echo '</div></div>';
+		// Knoepfe einfarbig, ohne Theme-Stile.
+		echo '<style>#bb-freigabe-leiste button{' . $knopf . 'background:transparent;color:#fff}#bb-freigabe-leiste form:last-child button{background:#2271b1;border-color:#2271b1}body{padding-bottom:80px}</style>'; // phpcs:ignore WordPress.Security.EscapeOutput
 	}
 
 	public static function seite() {
@@ -776,7 +818,7 @@ class Code_Sync_Freigabe {
 					echo '<br><span style="color:#b32d2e">Live-Seite wurde seitdem geändert. Beim Freigeben gehen diese Änderungen verloren.</span>';
 				}
 				echo '</td><td>' . esc_html( (string) get_post_meta( $entwurf->ID, self::NOTIZ, true ) ) . '</td><td>';
-				echo '<a class="button" href="' . esc_url( get_preview_post_link( $entwurf ) ) . '" target="_blank">Vorschau</a> ';
+				echo '<a class="button" href="' . esc_url( get_preview_post_link( $entwurf ) ) . '">Vorschau</a> ';
 				echo '<a class="button" href="' . esc_url( get_edit_post_link( $entwurf->ID ) ) . '">Bearbeiten</a> ';
 				if ( $konflikt ) {
 					echo self::knopf( 'trotzdem', $entwurf->ID, 'Trotzdem freigeben', 'button button-primary' ); // phpcs:ignore WordPress.Security.EscapeOutput

@@ -16,7 +16,7 @@
  * Plugin Name:       Büro Blanko Basic
  * Plugin URI:        https://bueroblanko.de
  * Description:       Grundeinstellungen, Branding und Code-Snippets von Büro Blanko für alle Kundenseiten. Optionaler Developer-Modus lädt Novamira (AGPL-3.0, Ovation S.r.l.) nach.
- * Version:           0.0.16.7
+ * Version:           0.0.17.20
  * Author:            Büro Blanko Medien GmbH
  * Author URI:        https://bueroblanko.de
  * License:           GPL-2.0+
@@ -65,6 +65,11 @@ define( 'CODE_SYNC_ADD_META_TAGS', !$exists );
 // wp-content/bb-developer-modus.php per FTP abgelegt ist.
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-developer-modus.php';
 Code_Sync_Developer_Modus::start();
+// Freigabeweg fuer Aenderungen auf Live-Seiten, nur mit Developer-Modus.
+if ( 'clear' !== Code_Sync_Developer_Modus::stufe() ) {
+	require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-freigabe.php';
+	Code_Sync_Freigabe::start( Code_Sync_Developer_Modus::stufe() );
+}
 
 
 
@@ -129,11 +134,23 @@ function run_code_sync() {
 run_code_sync();
 
 require 'plugin-update-checker/plugin-update-checker.php';
-$myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
-	'https://github.com/bueroblanko/Buero-Blanko-Basic',
-	__FILE__,
-	'code-sync-plugin'
-);
+// Update-Quelle ohne GitHub-API (deren Limit von 60 Abfragen pro Stunde je
+// Server-IP ist auf geteilten Servern schnell aufgebraucht), siehe
+// includes/class-code-sync-update-quelle.php.
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-code-sync-update-quelle.php';
+if ( class_exists( 'Code_Sync_Update_Quelle', false ) && class_exists( 'Puc_v4p11_Vcs_PluginUpdateChecker' ) ) {
+	$myUpdateChecker = new Puc_v4p11_Vcs_PluginUpdateChecker(
+		new Code_Sync_Update_Quelle( 'https://github.com/bueroblanko/Buero-Blanko-Basic' ),
+		__FILE__,
+		'code-sync-plugin'
+	);
+} else {
+	$myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
+		'https://github.com/bueroblanko/Buero-Blanko-Basic',
+		__FILE__,
+		'code-sync-plugin'
+	);
+}
 
 // Update-Kanal: Alle Seiten folgen dem Branch "live". Testseiten folgen "main",
 // wenn in ihrer wp-config.php steht: define( 'BB_BASIC_UPDATE_KANAL', 'test' );
@@ -141,8 +158,33 @@ $myUpdateChecker = Puc_v4_Factory::buildUpdateChecker(
 // define( 'BB_BASIC_TEST_ZWEIG', 'name-des-branches' );
 // Ablauf siehe NEWUPDATE.md.
 $code_sync_zweig = 'live';
-if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
+// Alternativ zur wp-config.php: Die Schalter-Datei des Developer-Modus
+// (wp-content/bb-developer-modus.php) kann Zeilen "kanal=test" und "zweig=..." enthalten.
+$code_sync_schalter = array();
+if ( is_readable( WP_CONTENT_DIR . '/bb-developer-modus.php' ) ) {
+	foreach ( (array) @file( WP_CONTENT_DIR . '/bb-developer-modus.php', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES ) as $code_sync_zeile ) {
+		$code_sync_teile = explode( '=', trim( $code_sync_zeile ), 2 );
+		if ( 2 === count( $code_sync_teile ) ) {
+			$code_sync_schalter[ strtolower( trim( $code_sync_teile[0] ) ) ] = trim( $code_sync_teile[1] );
+		}
+	}
+}
+if ( ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) || ( isset( $code_sync_schalter['kanal'] ) && 'test' === strtolower( $code_sync_schalter['kanal'] ) ) ) {
 	$code_sync_zweig = 'main';
+	// Nur Testseiten: PHP-Fehler in wp-content/bb-basic-log/fehler.log schreiben, auch
+	// wenn WP_DEBUG aus ist. Der Ordner ist fuer Besucher gesperrt.
+	$code_sync_log = WP_CONTENT_DIR . '/bb-basic-log';
+	if ( ! is_dir( $code_sync_log ) && wp_mkdir_p( $code_sync_log ) ) {
+		file_put_contents( $code_sync_log . '/.htaccess', "Require all denied\nDeny from all\n" );
+		file_put_contents( $code_sync_log . '/index.php', "<?php\n// Silence is golden.\n" );
+	}
+	if ( is_dir( $code_sync_log ) ) {
+		if ( file_exists( $code_sync_log . '/fehler.log' ) && filesize( $code_sync_log . '/fehler.log' ) > 1048576 ) {
+			@unlink( $code_sync_log . '/fehler.log' );
+		}
+		ini_set( 'log_errors', '1' );
+		ini_set( 'error_log', $code_sync_log . '/fehler.log' );
+	}
 	// Eine Test-ZIP kann eine Datei zweig.txt mitbringen. Sie wird gemerkt, weil das
 	// naechste Update von GitHub sie nicht mehr enthaelt.
 	$code_sync_zweig_datei = plugin_dir_path( __FILE__ ) . 'zweig.txt';
@@ -153,6 +195,9 @@ if ( defined( 'BB_BASIC_UPDATE_KANAL' ) && 'test' === BB_BASIC_UPDATE_KANAL ) {
 	// Eine per zweig.txt gemerkte Wahl geht vor die Konstante, damit sich der Branch
 	// ohne Eingriff in die wp-config.php umstellen laesst.
 	$code_sync_test_zweig = (string) get_option( 'code_sync_test_zweig', '' );
+	if ( '' === $code_sync_test_zweig && ! empty( $code_sync_schalter['zweig'] ) ) {
+		$code_sync_test_zweig = $code_sync_schalter['zweig'];
+	}
 	if ( '' === $code_sync_test_zweig && defined( 'BB_BASIC_TEST_ZWEIG' ) ) {
 		$code_sync_test_zweig = (string) BB_BASIC_TEST_ZWEIG;
 	}

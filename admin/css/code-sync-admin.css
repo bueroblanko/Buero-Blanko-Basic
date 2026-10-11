@@ -96,3 +96,23 @@
     font-weight: bold;
     color: #0073aa;
 }
+
+.bb-devmodus {
+    background-color: #f4f4f4;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+.bb-devmodus h2 {
+    margin-top: 0;
+}
+.bb-devmodus p {
+    margin: 4px 0;
+}
+.bb-devmodus form {
+    margin-top: 16px;
+}
+.bb-devmodus form .button {
+    margin: 0 8px 8px 0;
+}

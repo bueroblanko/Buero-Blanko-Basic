@@ -149,6 +149,13 @@ class Code_Sync_Admin {
 
 	function code_sync_settings_page() {
 		$theme_version =  $this->get_theme_version('Divi');
+
+		$code_sync_devmodus_meldung = '';
+		if ( isset( $_POST['bb_devmodus_stufe'], $_POST['bb_devmodus_nonce'] )
+			&& wp_verify_nonce( sanitize_key( $_POST['bb_devmodus_nonce'] ), 'bb_devmodus' )
+			&& current_user_can( 'manage_options' ) && $this->is_bueroblanko_user() ) {
+			$code_sync_devmodus_meldung = Code_Sync_Developer_Modus::herunterschalten( sanitize_key( $_POST['bb_devmodus_stufe'] ) );
+		}
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'code_sync_meta_tags';
 

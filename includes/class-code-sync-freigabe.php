@@ -81,6 +81,7 @@ class Code_Sync_Freigabe {
 			add_action( 'wp_before_execute_ability', array( __CLASS__, 'schutz_an' ), 1 );
 			add_action( 'wp_after_execute_ability', array( __CLASS__, 'schutz_aus' ), PHP_INT_MAX );
 			add_filter( 'novamira_mcp_adapter_pre_tool_call', array( __CLASS__, 'vorpruefung' ), 10, 2 );
+			add_filter( 'wp_pre_execute_ability', array( __CLASS__, 'vorpruefung_rest' ), 10, 3 );
 			add_filter( 'wp_insert_post_empty_content', array( __CLASS__, 'post_sperre' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_delete_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_trash_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
@@ -122,10 +123,31 @@ class Code_Sync_Freigabe {
 	 */
 	public static function vorpruefung( $args, $werkzeug ) {
 		self::$mcp = true;
-		if ( ! is_array( $args ) || empty( $args['ability_name'] ) || ! in_array( $args['ability_name'], self::$entwurf_werkzeuge, true ) ) {
+		if ( ! is_array( $args ) || empty( $args['ability_name'] ) ) {
 			return $args;
 		}
-		$p  = isset( $args['parameters'] ) && is_array( $args['parameters'] ) ? $args['parameters'] : array();
+		$fehler = self::ziel_gesperrt( $args['ability_name'], isset( $args['parameters'] ) ? $args['parameters'] : array() );
+		return $fehler ? $fehler : $args;
+	}
+
+	/**
+	 * Gleiche Vorpruefung fuer den REST-Weg (etwa die Novamira-CLI) ab WordPress 7.1.
+	 * Ohne sie greift dort nur die stille Sperre, und Novamira meldet irrefuehrend
+	 * „Inhalt, Titel und Textauszug sind leer“.
+	 */
+	public static function vorpruefung_rest( $pre, $name, $input ) {
+		if ( self::$mcp ) {
+			return $pre;
+		}
+		$fehler = self::ziel_gesperrt( $name, $input );
+		return $fehler ? $fehler : $pre;
+	}
+
+	/** WP_Error, wenn ein Entwurfs-Werkzeug auf eine Live-Seite zielt, sonst null. */
+	private static function ziel_gesperrt( $name, $p ) {
+		if ( ! in_array( $name, self::$entwurf_werkzeuge, true ) || ! is_array( $p ) ) {
+			return null;
+		}
 		$id = 0;
 		foreach ( array( 'post', 'post_id', 'target_id' ) as $schluessel ) {
 			if ( isset( $p[ $schluessel ] ) && is_numeric( $p[ $schluessel ] ) ) {
@@ -134,9 +156,9 @@ class Code_Sync_Freigabe {
 			}
 		}
 		if ( $id && ! self::ist_entwurf( $id ) ) {
-			return new WP_Error( 'bb_gesperrt', self::sperr_text( $id ) );
+			return new WP_Error( 'bb_gesperrt', self::sperr_text( $id ), array( 'status' => 403 ) );
 		}
-		return $args;
+		return null;
 	}
 
 	private static function sperr_text( $id ) {

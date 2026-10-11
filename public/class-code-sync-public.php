@@ -108,35 +108,79 @@ class Code_Sync_Public {
 			return;
 		}
 
-		$snippets = glob($snippets_dir . "*.php");
-		if (empty($snippets)) {
-			return;
-		}
-
+		$snippets = glob($snippets_dir . "*.php") ?: array();
 		foreach ($snippets as $file) {
 			if (basename($file) === 'index.php') {
 				continue;
 			}
+			$this->run_snippet($file);
+		}
 
-			$code = file_get_contents($file);
-			if ($code === false) {
-				continue;
-			}
-			$code = preg_replace('/^<\?php/', '', $code);
+		// Snippets auf Abruf laufen nur auf Seiten, die sie in der Datei
+		// wp-content/bb-snippets.php freischalten (siehe snippets_auf_abruf()).
+		foreach (self::snippets_auf_abruf() as $file) {
+			$this->run_snippet($file);
+		}
+	}
 
-			// Throwable faengt auch Laufzeitfehler (Error, TypeError) ab, damit ein
-			// defektes Snippet nicht die ganze Seite lahmlegt. Doppelt deklarierte
-			// Funktionen lassen sich so nicht abfangen, deshalb tragen alle
-			// Snippet-Funktionen das Praefix bb_.
-			ob_start();
-			try {
-				eval($code);
-			} catch (Throwable $e) {
-				error_log('BB Basic: Snippet ' . basename($file) . ' fehlgeschlagen: ' . $e->getMessage());
-			} finally {
-				ob_end_clean();
+	private function run_snippet($file) {
+		$code = file_get_contents($file);
+		if ($code === false) {
+			return;
+		}
+		$code = preg_replace('/^<\?php/', '', $code);
+
+		// Throwable faengt auch Laufzeitfehler (Error, TypeError) ab, damit ein
+		// defektes Snippet nicht die ganze Seite lahmlegt. Doppelt deklarierte
+		// Funktionen lassen sich so nicht abfangen, deshalb tragen alle
+		// Snippet-Funktionen das Praefix bb_.
+		ob_start();
+		try {
+			eval($code);
+		} catch (Throwable $e) {
+			error_log('BB Basic: Snippet ' . basename($file) . ' fehlgeschlagen: ' . $e->getMessage());
+		} finally {
+			ob_end_clean();
+		}
+	}
+
+	/**
+	 * Snippets aus code-snippets/php-auf-abruf/ laufen nur, wenn sie in der Datei
+	 * wp-content/bb-snippets.php stehen (per FTP angelegt, wie die Schalter-Datei
+	 * des Developer-Modus). Aufbau: erste Zeile <?php exit; ?>, dann
+	 *   snippets=name-eins,name-zwei
+	 * Namen ohne .php. Ohne Datei laeuft kein Snippet auf Abruf.
+	 *
+	 * @return array Pfade der freigeschalteten Snippet-Dateien, die es gibt.
+	 */
+	public static function snippets_auf_abruf() {
+		$liste = WP_CONTENT_DIR . '/bb-snippets.php';
+		if (!is_readable($liste)) {
+			return array();
+		}
+
+		$namen = array();
+		foreach ((array) @file($liste, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $zeile) {
+			$teile = explode('=', trim($zeile), 2);
+			if (2 === count($teile) && 'snippets' === strtolower(trim($teile[0]))) {
+				$namen = array_merge($namen, explode(',', $teile[1]));
 			}
 		}
+
+		$ordner  = plugin_dir_path(__FILE__) . '../code-snippets/php-auf-abruf/';
+		$dateien = array();
+		foreach ($namen as $name) {
+			$name = strtolower(trim($name));
+			// Nur einfache Namen, damit die Datei keinen Pfad ausserhalb des Ordners nennen kann.
+			if (!preg_match('/^[a-z0-9_-]+$/', $name) || 'index' === $name) {
+				continue;
+			}
+			$datei = $ordner . $name . '.php';
+			if (is_readable($datei)) {
+				$dateien[$name] = $datei;
+			}
+		}
+		return $dateien;
 	}
 
 	public function add_meta_tags () {

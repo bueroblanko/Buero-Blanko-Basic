@@ -67,5 +67,11 @@
         <p class="description">Herunterschalten geht hier. Einschalten oder auf eine höhere Stufe nur per FTP über die Schalter-Datei wp-content/bb-developer-modus.php, damit ein fremdes Admin-Konto den Developer-Modus nicht einschalten kann.</p>
         <?php endif; ?>
     </div>
+    <div class="bb-snippets-auf-abruf">
+        <h2>Snippets auf Abruf</h2>
+        <?php $code_sync_abruf = array_keys( Code_Sync_Public::snippets_auf_abruf() ); ?>
+        <p><?php echo esc_html( $code_sync_abruf ? 'Aktiv: ' . implode( ', ', $code_sync_abruf ) : 'Keine aktiv.' ); ?></p>
+        <p class="description">Snippets aus dem Ordner code-snippets/php-auf-abruf laufen nur, wenn sie per FTP in der Datei wp-content/bb-snippets.php stehen.</p>
+    </div>
     <?php endif; ?>
    

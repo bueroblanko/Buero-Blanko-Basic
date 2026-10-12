@@ -8,6 +8,9 @@
  * Konfliktpruefung gegen die Live-Seite, Sicherung der alten Fassung, Rueckgaengig
  * mit einem Klick, Caches leeren, Protokoll.
  *
+ * Neue Inhalte (Seiten, Beitraege, eigene Inhaltstypen) legt ein Werkzeug in Stufe live
+ * nur als Entwurf an. BB Basic kennzeichnet sie als „neu“; die Freigabe veroeffentlicht sie.
+ *
  * Die Sperre greift nur in Stufe live und nur waehrend Werkzeug-Aufrufen (Abilities).
  * Wer im Backend von Hand arbeitet, merkt davon nichts.
  *
@@ -25,6 +28,7 @@ class Code_Sync_Freigabe {
 	const BASIS         = '_bb_entwurf_basis';    // am Entwurf: Pruefsumme der Live-Seite beim Anlegen
 	const ANGEFRAGT     = '_bb_entwurf_angefragt'; // am Entwurf: Zeitpunkt der Freigabe-Anfrage
 	const NOTIZ         = '_bb_entwurf_notiz';
+	const NEU           = '_bb_entwurf_neu';      // an neuen Inhalten bis zur Freigabe
 	const SICHERUNG_VON = '_bb_sicherung_von';    // an der Sicherung: ID der Live-Seite
 	const SICHERUNG     = 'bb_sicherung';         // Post-Status der Sicherungen
 	const PROTOKOLL     = 'code_sync_freigabe_protokoll';
@@ -50,6 +54,12 @@ class Code_Sync_Freigabe {
 		'novamira/divi-enable-loop',
 		'novamira/divi-disable-loop',
 		'novamira/divi-edit-loop',
+		'novamira/update-post',
+	);
+
+	// Legen neue Inhalte an. In Stufe live nur als Entwurf (siehe post_sperre).
+	public static $neu_werkzeuge = array(
+		'novamira/create-post',
 	);
 
 	// Diese Meta-Felder gehoeren zur Seite selbst und werden nie kopiert.
@@ -59,6 +69,7 @@ class Code_Sync_Freigabe {
 	private static $schutz  = false; // true, sobald in Stufe live ein Werkzeug laeuft
 	private static $intern  = false; // true, waehrend BB Basic selbst kopiert
 	private static $mcp     = false; // true in einem MCP-Werkzeugaufruf, der Ausnahmen abfaengt
+	private static $neu_offen = false; // true, waehrend ein Werkzeug einen neuen Inhalt anlegt
 
 	public static function start( $stufe ) {
 		self::$stufe = $stufe;
@@ -86,15 +97,17 @@ class Code_Sync_Freigabe {
 			add_filter( 'pre_delete_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
 			add_filter( 'pre_trash_post', array( __CLASS__, 'loesch_schutz' ), PHP_INT_MAX, 2 );
 			foreach ( array( 'add', 'update', 'delete' ) as $art ) {
-				add_filter( $art . '_post_metadata', array( __CLASS__, 'meta_schutz' ), PHP_INT_MAX, 2 );
+				add_filter( $art . '_post_metadata', array( __CLASS__, 'meta_schutz' ), PHP_INT_MAX, 3 );
 			}
+			add_action( 'save_post', array( __CLASS__, 'neu_markieren' ), 0, 3 );
+			add_action( 'wp_insert_post', array( __CLASS__, 'neu_fertig' ), PHP_INT_MAX );
 			add_filter( 'novamira_discover_abilities_instructions', array( __CLASS__, 'anleitung' ) );
 		}
 	}
 
 	/** Ist ein Werkzeug in Stufe live erlaubt? (Ergaenzt die Liste im Developer-Modus.) */
 	public static function live_erlaubt( $name ) {
-		return 0 === strpos( $name, 'bb-basic/' ) || in_array( $name, self::$entwurf_werkzeuge, true );
+		return 0 === strpos( $name, 'bb-basic/' ) || in_array( $name, self::$entwurf_werkzeuge, true ) || in_array( $name, self::$neu_werkzeuge, true );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -113,7 +126,8 @@ class Code_Sync_Freigabe {
 
 	public static function schutz_aus() {
 		if ( ! self::$mcp ) {
-			self::$schutz = false;
+			self::$schutz    = false;
+			self::$neu_offen = false;
 		}
 	}
 
@@ -145,11 +159,18 @@ class Code_Sync_Freigabe {
 
 	/** WP_Error, wenn ein Entwurfs-Werkzeug auf eine Live-Seite zielt, sonst null. */
 	private static function ziel_gesperrt( $name, $p ) {
+		if ( in_array( $name, self::$neu_werkzeuge, true ) && is_array( $p ) ) {
+			$status = isset( $p['status'] ) ? $p['status'] : ( isset( $p['post_status'] ) ? $p['post_status'] : 'draft' );
+			if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
+				return new WP_Error( 'bb_gesperrt', 'BB Basic: On this live site new content can only be created with status draft. It is published after a Buero Blanko admin approves it; call bb-basic/freigabe-anfragen when it is ready.', array( 'status' => 403 ) );
+			}
+			return null;
+		}
 		if ( ! in_array( $name, self::$entwurf_werkzeuge, true ) || ! is_array( $p ) ) {
 			return null;
 		}
 		$id = 0;
-		foreach ( array( 'post', 'post_id', 'target_id' ) as $schluessel ) {
+		foreach ( array( 'post', 'post_id', 'target_id', 'id' ) as $schluessel ) {
 			if ( isset( $p[ $schluessel ] ) && is_numeric( $p[ $schluessel ] ) ) {
 				$id = (int) $p[ $schluessel ];
 				break;
@@ -180,7 +201,16 @@ class Code_Sync_Freigabe {
 		if ( 'revision' === $post->post_type ) {
 			return self::gesperrt( (int) $post->post_parent );
 		}
-		return ! self::ist_entwurf( $id );
+		if ( self::ist_entwurf( $id ) ) {
+			return false;
+		}
+		// Waehrend wp_insert_post einen neuen Inhalt anlegt, schreibt es Meta-Felder
+		// (meta_input) noch vor save_post. Den neuen Entwurf hier schon kennzeichnen.
+		if ( self::$neu_offen && in_array( $post->post_status, array( 'draft', 'auto-draft', 'pending' ), true ) && in_array( $post->post_type, self::typen(), true ) ) {
+			self::neu_kennzeichnen( $id );
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -200,15 +230,37 @@ class Code_Sync_Freigabe {
 		if ( ! self::$schutz || self::$intern ) {
 			return $leer;
 		}
-		$id = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
+		$id              = isset( $postarr['ID'] ) ? (int) $postarr['ID'] : 0;
+		$typ             = isset( $postarr['post_type'] ) ? $postarr['post_type'] : 'post';
+		self::$neu_offen = ! $id && in_array( $typ, self::typen(), true );
 		if ( $id > 0 && self::gesperrt( $id ) ) {
 			return self::blockieren( self::sperr_text( $id ) );
 		}
 		$status = isset( $postarr['post_status'] ) ? $postarr['post_status'] : 'draft';
 		if ( ! $id && ! in_array( $status, array( 'draft', 'auto-draft', 'pending', 'inherit' ), true ) ) {
-			return self::blockieren( 'BB Basic: On this live site new content can only be created as a draft.' );
+			self::$neu_offen = false;
+			return self::blockieren( 'BB Basic: On this live site new content can only be created as a draft (status draft). It is published after a Buero Blanko admin approves it; call bb-basic/freigabe-anfragen when it is ready.' );
 		}
 		return $leer;
+	}
+
+	/** Neuer Inhalt aus einem Werkzeug: als BB-Entwurf kennzeichnen. */
+	public static function neu_markieren( $id, $post, $update ) {
+		if ( self::$neu_offen && ! $update && ! self::$intern && $post && in_array( $post->post_type, self::typen(), true ) && ! self::ist_entwurf( $id ) ) {
+			self::neu_kennzeichnen( $id );
+		}
+	}
+
+	public static function neu_fertig() {
+		self::$neu_offen = false;
+	}
+
+	private static function neu_kennzeichnen( $id ) {
+		$vorher       = self::$intern;
+		self::$intern = true;
+		update_post_meta( $id, self::NEU, time() );
+		self::$intern = $vorher;
+		self::protokoll( 'Neuer Entwurf angelegt', $id, $id );
 	}
 
 	/**
@@ -223,8 +275,15 @@ class Code_Sync_Freigabe {
 		return $daten;
 	}
 
-	public static function meta_schutz( $weiter, $id ) {
-		if ( null === $weiter && self::gesperrt( (int) $id ) ) {
+	public static function meta_schutz( $weiter, $id, $schluessel = '' ) {
+		if ( null !== $weiter ) {
+			return $weiter;
+		}
+		// Die Kennzeichnung der Entwuerfe setzt nur BB Basic selbst.
+		if ( self::$schutz && ! self::$intern && 0 === strpos( (string) $schluessel, '_bb_' ) ) {
+			return self::blockieren( 'BB Basic: Meta fields starting with _bb_ are managed by BB Basic.' ) ? false : $weiter;
+		}
+		if ( self::gesperrt( (int) $id ) ) {
 			return self::blockieren( self::sperr_text( (int) $id ) ) ? false : $weiter;
 		}
 		return $weiter;
@@ -238,7 +297,7 @@ class Code_Sync_Freigabe {
 	}
 
 	public static function anleitung( $text ) {
-		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools (new images: bb-basic/bild-hochladen), then call bb-basic/freigabe-anfragen (entwurf_id, notiz). A Buero Blanko admin reviews and approves it in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
+		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools or novamira/update-post, then call bb-basic/freigabe-anfragen (entwurf_id, notiz). New pages, posts or custom post type entries: bb-basic/neuer-inhalt (or novamira/create-post with status draft); they stay drafts until approved. Password protection: passwort in bb-basic/neuer-inhalt or bb-basic/passwort-setzen, it takes effect on approval. Images and PDFs: bb-basic/datei-hochladen (media files are reachable by URL right after upload). A Buero Blanko admin reviews and approves everything in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -246,7 +305,12 @@ class Code_Sync_Freigabe {
 	/* ------------------------------------------------------------------ */
 
 	public static function ist_entwurf( $id ) {
-		return (int) get_post_meta( $id, self::ENTWURF_VON, true ) > 0;
+		return (int) get_post_meta( $id, self::ENTWURF_VON, true ) > 0 || self::ist_neu( $id );
+	}
+
+	/** Neuer Inhalt, der noch nie veroeffentlicht wurde (keine Live-Seite dahinter). */
+	public static function ist_neu( $id ) {
+		return (bool) get_post_meta( $id, self::NEU, true );
 	}
 
 	private static function entwurf_zu( $original ) {
@@ -319,9 +383,11 @@ class Code_Sync_Freigabe {
 			'entwurf_id'    => (int) $entwurf,
 			'original_id'   => $original,
 			'neu'           => (bool) $neu,
-			'titel'         => get_the_title( $original ),
+			'neuer_inhalt'  => self::ist_neu( $entwurf ),
+			'post_type'     => (string) get_post_type( $entwurf ),
+			'titel'         => get_the_title( $original ? $original : $entwurf ),
 			'vorschau_url'  => get_preview_post_link( $entwurf ),
-			'live_url'      => get_permalink( $original ),
+			'live_url'      => $original ? get_permalink( $original ) : '',
 			'angefragt'     => (bool) get_post_meta( $entwurf, self::ANGEFRAGT, true ),
 			'live_geaendert' => self::konflikt( $entwurf ),
 		);
@@ -329,6 +395,9 @@ class Code_Sync_Freigabe {
 
 	/** Wurde die Live-Seite geaendert, seit der Entwurf angelegt wurde? */
 	public static function konflikt( $entwurf ) {
+		if ( self::ist_neu( $entwurf ) ) {
+			return false;
+		}
 		$original = (int) get_post_meta( $entwurf, self::ENTWURF_VON, true );
 		return get_post_meta( $entwurf, self::BASIS, true ) !== self::pruefsumme( $original );
 	}
@@ -337,7 +406,11 @@ class Code_Sync_Freigabe {
 		return get_posts( array(
 			'post_type'        => self::typen(),
 			'post_status'      => array( 'draft', 'pending' ),
-			'meta_key'         => self::ENTWURF_VON,
+			'meta_query'       => array(
+				'relation' => 'OR',
+				array( 'key' => self::ENTWURF_VON, 'compare' => 'EXISTS' ),
+				array( 'key' => self::NEU, 'compare' => 'EXISTS' ),
+			),
 			'posts_per_page'   => 100,
 			'orderby'          => 'modified',
 			'suppress_filters' => true,
@@ -373,7 +446,8 @@ class Code_Sync_Freigabe {
 				'post_excerpt' => $quelle->post_excerpt,
 			);
 			if ( $ziel ) {
-				$daten['ID'] = (int) $ziel;
+				$daten['ID']            = (int) $ziel;
+				$daten['post_password'] = $quelle->post_password;
 				$ergebnis    = wp_update_post( wp_slash( $daten ), true );
 			} else {
 				$daten += array(
@@ -449,6 +523,9 @@ class Code_Sync_Freigabe {
 	 * @return string Fehlermeldung oder ''
 	 */
 	public static function freigeben( $entwurf, $trotz_konflikt = false ) {
+		if ( self::ist_neu( $entwurf ) ) {
+			return self::neu_veroeffentlichen( $entwurf );
+		}
 		$original = (int) get_post_meta( $entwurf, self::ENTWURF_VON, true );
 		if ( ! $original || ! get_post( $original ) ) {
 			return 'Die Live-Seite zu diesem Entwurf gibt es nicht mehr.';
@@ -470,8 +547,30 @@ class Code_Sync_Freigabe {
 		return '';
 	}
 
+	/** Neuen Inhalt veroeffentlichen. Es gibt keine Live-Fassung, also auch keine Sicherung. */
+	private static function neu_veroeffentlichen( $id ) {
+		self::$intern = true;
+		try {
+			$ergebnis = wp_update_post( array( 'ID' => (int) $id, 'post_status' => 'publish' ), true );
+			if ( is_wp_error( $ergebnis ) ) {
+				return 'Veröffentlichen fehlgeschlagen: ' . $ergebnis->get_error_message();
+			}
+			foreach ( array( self::NEU, self::ANGEFRAGT, self::NOTIZ ) as $schluessel ) {
+				delete_post_meta( $id, $schluessel );
+			}
+		} finally {
+			self::$intern = false;
+		}
+		self::caches_leeren( $id );
+		self::protokoll( 'Neu veröffentlicht', $id, $id );
+		return '';
+	}
+
 	public static function verwerfen( $entwurf ) {
 		$original = (int) get_post_meta( $entwurf, self::ENTWURF_VON, true );
+		if ( ! $original ) {
+			$original = (int) $entwurf;
+		}
 		self::$intern = true;
 		wp_trash_post( $entwurf );
 		self::$intern = false;
@@ -605,6 +704,8 @@ class Code_Sync_Freigabe {
 				'entwurf_id'     => array( 'type' => 'integer' ),
 				'original_id'    => array( 'type' => 'integer' ),
 				'neu'            => array( 'type' => 'boolean' ),
+				'neuer_inhalt'   => array( 'type' => 'boolean' ),
+				'post_type'      => array( 'type' => 'string' ),
 				'titel'          => array( 'type' => 'string' ),
 				'vorschau_url'   => array( 'type' => 'string' ),
 				'live_url'       => array( 'type' => 'string' ),
@@ -646,19 +747,19 @@ class Code_Sync_Freigabe {
 			'meta'                => $meta( true ),
 		) );
 
-		wp_register_ability( 'bb-basic/bild-hochladen', array(
-			'label'               => 'Bild hochladen',
-			'description'         => 'Add an image (JPG, PNG, WebP or GIF, max 20 MB) to the media library, from a public https URL or as base64. Published pages are not changed; use the returned attachment_id or url in a BB draft and request approval as usual.',
+		$upload = array(
+			'label'               => 'Datei hochladen',
+			'description'         => 'Add an image (JPG, PNG, WebP or GIF) or a PDF, max 20 MB, to the media library, from a public https URL or as base64. Published pages are not changed; use the returned attachment_id or url in a BB draft and request approval as usual. Note: like every WordPress media file, the file is reachable by its URL right after upload, also for password-protected posts.',
 			'category'            => 'bb-basic',
 			'input_schema'        => array(
 				'type'       => 'object',
 				'properties' => array(
-					'url'        => array( 'type' => 'string', 'description' => 'Public https URL of the image.' ),
-					'base64'     => array( 'type' => 'string', 'description' => 'Image file as base64, instead of url.' ),
-					'dateiname'  => array( 'type' => 'string', 'description' => 'File name with extension, e.g. zertifikate.jpg. Required with base64.' ),
+					'url'        => array( 'type' => 'string', 'description' => 'Public https URL of the file.' ),
+					'base64'     => array( 'type' => 'string', 'description' => 'File as base64, instead of url.' ),
+					'dateiname'  => array( 'type' => 'string', 'description' => 'File name with extension, e.g. handout.pdf. Required with base64.' ),
 					'titel'      => array( 'type' => 'string' ),
-					'alt'        => array( 'type' => 'string', 'description' => 'Alt text (German).' ),
-					'entwurf_id' => array( 'type' => 'integer', 'description' => 'Optional BB draft to attach the image to.' ),
+					'alt'        => array( 'type' => 'string', 'description' => 'Alt text for images (German).' ),
+					'entwurf_id' => array( 'type' => 'integer', 'description' => 'Optional BB draft to attach the file to.' ),
 				),
 			),
 			'output_schema'       => array(
@@ -672,6 +773,66 @@ class Code_Sync_Freigabe {
 			),
 			'execute_callback'    => function ( $input ) {
 				return self::bild_hochladen( (array) $input );
+			},
+			'permission_callback' => array( __CLASS__, 'darf' ),
+			'meta'                => $meta( false ),
+		);
+		wp_register_ability( 'bb-basic/datei-hochladen', $upload );
+		// Alter Name aus 0.0.17, gleiche Funktion.
+		$upload['label'] = 'Bild hochladen';
+		wp_register_ability( 'bb-basic/bild-hochladen', $upload );
+
+		wp_register_ability( 'bb-basic/neuer-inhalt', array(
+			'label'               => 'Neuen Inhalt anlegen',
+			'description'         => 'Create a new page, post or custom post type entry as a BB draft. It is published only after a Buero Blanko admin approves it (call bb-basic/freigabe-anfragen when ready). For Divi layouts leave inhalt empty and edit the draft with the novamira/divi-* tools afterwards.',
+			'category'            => 'bb-basic',
+			'input_schema'        => array(
+				'type'       => 'object',
+				'properties' => array(
+					'post_type'   => array( 'type' => 'string', 'description' => 'page, post or a registered custom post type. Default post.' ),
+					'titel'       => array( 'type' => 'string' ),
+					'inhalt'      => array( 'type' => 'string', 'description' => 'post_content (HTML or blocks). Optional.' ),
+					'auszug'      => array( 'type' => 'string' ),
+					'slug'        => array( 'type' => 'string' ),
+					'eltern_id'   => array( 'type' => 'integer', 'description' => 'Parent page (hierarchical types only).' ),
+					'reihenfolge' => array( 'type' => 'integer', 'description' => 'menu_order.' ),
+					'passwort'    => array( 'type' => 'string', 'description' => 'Post password. Takes effect when the draft is approved.' ),
+					'begriffe'    => array( 'type' => 'object', 'description' => 'Existing terms per taxonomy, e.g. {"category": ["Handouts"]}. Names, slugs or IDs. Unknown terms are an error; new terms are not created on live sites.' ),
+					'bild_id'     => array( 'type' => 'integer', 'description' => 'Featured image attachment ID.' ),
+				),
+				'required'   => array( 'titel' ),
+			),
+			'output_schema'       => $entwurf_ausgabe,
+			'execute_callback'    => function ( $input ) {
+				return self::neuer_inhalt( (array) $input );
+			},
+			'permission_callback' => array( __CLASS__, 'darf' ),
+			'meta'                => $meta( false ),
+		) );
+
+		wp_register_ability( 'bb-basic/passwort-setzen', array(
+			'label'               => 'Passwort setzen',
+			'description'         => 'Set or remove (empty string) the password of a BB draft. On a live site it takes effect when the draft is approved.',
+			'category'            => 'bb-basic',
+			'input_schema'        => array(
+				'type'       => 'object',
+				'properties' => array(
+					'entwurf_id' => array( 'type' => 'integer' ),
+					'passwort'   => array( 'type' => 'string' ),
+				),
+				'required'   => array( 'entwurf_id', 'passwort' ),
+			),
+			'output_schema'       => $entwurf_ausgabe,
+			'execute_callback'    => function ( $input ) {
+				$id = (int) $input['entwurf_id'];
+				if ( ! self::ist_entwurf( $id ) ) {
+					return new WP_Error( 'bb_freigabe', 'Not a BB draft. Call bb-basic/entwurf-anlegen first.' );
+				}
+				$ergebnis = wp_update_post( array( 'ID' => $id, 'post_password' => wp_slash( (string) $input['passwort'] ) ), true );
+				if ( is_wp_error( $ergebnis ) ) {
+					return $ergebnis;
+				}
+				return self::entwurf_daten( $id, false );
 			},
 			'permission_callback' => array( __CLASS__, 'darf' ),
 			'meta'                => $meta( false ),
@@ -695,9 +856,12 @@ class Code_Sync_Freigabe {
 				if ( ! self::ist_entwurf( $id ) ) {
 					return new WP_Error( 'bb_freigabe', 'Not a BB draft.' );
 				}
+				self::$intern = true;
 				update_post_meta( $id, self::ANGEFRAGT, time() );
 				update_post_meta( $id, self::NOTIZ, sanitize_textarea_field( isset( $input['notiz'] ) ? (string) $input['notiz'] : '' ) );
-				self::protokoll( 'Freigabe angefragt', (int) get_post_meta( $id, self::ENTWURF_VON, true ), $id );
+				self::$intern = false;
+				$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
+				self::protokoll( 'Freigabe angefragt', $original ? $original : $id, $id );
 				return self::entwurf_daten( $id, false );
 			},
 			'permission_callback' => array( __CLASS__, 'darf' ),
@@ -710,15 +874,89 @@ class Code_Sync_Freigabe {
 	/* ------------------------------------------------------------------ */
 
 	/**
-	 * Bild in die Mediathek. Aendert keine veroeffentlichte Seite, deshalb auch in Stufe live.
-	 * Nur Rasterbilder (kein SVG), Download nur ueber wp_safe_remote_get (keine internen Adressen).
+	 * Neuen Inhalt als BB-Entwurf anlegen.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function neuer_inhalt( $input ) {
+		$typ = isset( $input['post_type'] ) && '' !== $input['post_type'] ? sanitize_key( (string) $input['post_type'] ) : 'post';
+		if ( ! in_array( $typ, self::typen(), true ) ) {
+			return new WP_Error( 'bb_freigabe', 'Post type "' . $typ . '" is not supported. Allowed: ' . implode( ', ', self::typen() ) );
+		}
+		$titel = isset( $input['titel'] ) ? trim( (string) $input['titel'] ) : '';
+		if ( '' === $titel ) {
+			return new WP_Error( 'bb_freigabe', 'titel is required.' );
+		}
+
+		// Begriffe vorher pruefen, damit kein halber Entwurf entsteht.
+		$begriffe = array();
+		if ( ! empty( $input['begriffe'] ) && is_array( $input['begriffe'] ) ) {
+			foreach ( $input['begriffe'] as $taxonomie => $werte ) {
+				if ( ! is_object_in_taxonomy( $typ, $taxonomie ) ) {
+					return new WP_Error( 'bb_freigabe', 'Taxonomy "' . $taxonomie . '" does not belong to ' . $typ . '.' );
+				}
+				foreach ( (array) $werte as $wert ) {
+					$begriff = is_numeric( $wert ) ? get_term( (int) $wert, $taxonomie ) : get_term_by( 'name', (string) $wert, $taxonomie );
+					if ( ! $begriff && ! is_numeric( $wert ) ) {
+						$begriff = get_term_by( 'slug', sanitize_title( (string) $wert ), $taxonomie );
+					}
+					if ( ! $begriff || is_wp_error( $begriff ) ) {
+						return new WP_Error( 'bb_freigabe', 'Term "' . $wert . '" not found in ' . $taxonomie . '. New terms are not created on live sites.' );
+					}
+					$begriffe[ $taxonomie ][] = (int) $begriff->term_id;
+				}
+			}
+		}
+
+		$daten = array(
+			'post_type'     => $typ,
+			'post_status'   => 'draft',
+			'post_title'    => $titel,
+			'post_content'  => isset( $input['inhalt'] ) ? (string) $input['inhalt'] : '',
+			'post_excerpt'  => isset( $input['auszug'] ) ? (string) $input['auszug'] : '',
+			'post_password' => isset( $input['passwort'] ) ? (string) $input['passwort'] : '',
+			'post_author'   => get_current_user_id(),
+		);
+		if ( ! empty( $input['slug'] ) ) {
+			$daten['post_name'] = sanitize_title( (string) $input['slug'] );
+		}
+		if ( ! empty( $input['eltern_id'] ) && is_post_type_hierarchical( $typ ) ) {
+			$daten['post_parent'] = (int) $input['eltern_id'];
+		}
+		if ( isset( $input['reihenfolge'] ) ) {
+			$daten['menu_order'] = (int) $input['reihenfolge'];
+		}
+
+		self::$intern = true;
+		try {
+			$id = wp_insert_post( wp_slash( $daten ), true );
+			if ( is_wp_error( $id ) ) {
+				return $id;
+			}
+			update_post_meta( $id, self::NEU, time() );
+			foreach ( $begriffe as $taxonomie => $ids ) {
+				wp_set_object_terms( $id, $ids, $taxonomie );
+			}
+			if ( ! empty( $input['bild_id'] ) && wp_attachment_is_image( (int) $input['bild_id'] ) ) {
+				set_post_thumbnail( $id, (int) $input['bild_id'] );
+			}
+		} finally {
+			self::$intern = false;
+		}
+		self::protokoll( 'Neuer Entwurf angelegt', $id, $id );
+		return self::entwurf_daten( $id, true );
+	}
+
+	/**
+	 * Bild oder PDF in die Mediathek. Aendert keine veroeffentlichte Seite, deshalb auch in
+	 * Stufe live. Nur Rasterbilder und PDF (kein SVG), Typ nach dem echten Inhalt.
 	 */
 	public static function bild_hochladen( $input ) {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		$typen = array( 'jpg|jpeg|jpe' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif' );
+		$typen = array( 'jpg|jpeg|jpe' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif', 'pdf' => 'application/pdf' );
 		$max   = 20 * MB_IN_BYTES;
 		$url   = isset( $input['url'] ) ? trim( (string) $input['url'] ) : '';
 		$name  = isset( $input['dateiname'] ) ? sanitize_file_name( (string) $input['dateiname'] ) : '';
@@ -747,17 +985,20 @@ class Code_Sync_Freigabe {
 
 		if ( filesize( $tmp ) > $max ) {
 			wp_delete_file( $tmp );
-			return new WP_Error( 'bb_bild', 'Image is larger than 20 MB.' );
+			return new WP_Error( 'bb_bild', 'File is larger than 20 MB.' );
 		}
 		// Endung nach dem echten Inhalt, nicht nach dem Namen.
 		$info = wp_get_image_mime( $tmp );
-		$ext  = $info ? array_search( $info, $typen, true ) : false;
+		if ( ! $info && '%PDF-' === (string) file_get_contents( $tmp, false, null, 0, 5 ) ) {
+			$info = 'application/pdf';
+		}
+		$ext = $info ? array_search( $info, $typen, true ) : false;
 		if ( ! $ext ) {
 			wp_delete_file( $tmp );
-			return new WP_Error( 'bb_bild', 'Only JPG, PNG, WebP or GIF images are allowed.' );
+			return new WP_Error( 'bb_bild', 'Only JPG, PNG, WebP, GIF images or PDF files are allowed.' );
 		}
 		$ext  = strtok( $ext, '|' );
-		$name = preg_replace( '#\.[^.]*$#', '', $name ? $name : 'bild' ) . '.' . $ext;
+		$name = preg_replace( '#\.[^.]*$#', '', $name ? $name : 'datei' ) . '.' . $ext;
 
 		$entwurf = isset( $input['entwurf_id'] ) ? (int) $input['entwurf_id'] : 0;
 		if ( $entwurf && ! self::ist_entwurf( $entwurf ) ) {
@@ -814,7 +1055,9 @@ class Code_Sync_Freigabe {
 	}
 
 	public static function kennzeichnen( $zustaende, $post ) {
-		if ( self::ist_entwurf( $post->ID ) ) {
+		if ( self::ist_neu( $post->ID ) ) {
+			$zustaende['bb_entwurf'] = 'BB-Entwurf, neu';
+		} elseif ( self::ist_entwurf( $post->ID ) ) {
 			$zustaende['bb_entwurf'] = 'BB-Entwurf zu „' . get_the_title( (int) get_post_meta( $post->ID, self::ENTWURF_VON, true ) ) . '“';
 		}
 		return $zustaende;
@@ -855,6 +1098,9 @@ class Code_Sync_Freigabe {
 		$was      = isset( $_POST['was'] ) ? sanitize_key( $_POST['was'] ) : '';
 		$id       = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
 		$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
+		if ( ! $original && self::ist_neu( $id ) ) {
+			$original = $id; // neuer Inhalt: nach der Freigabe ist er selbst die Live-Seite
+		}
 		$fehler   = 'Unbekannte Aktion.';
 		if ( in_array( $was, array( 'freigeben', 'trotzdem', 'verwerfen' ), true ) && ! self::ist_entwurf( $id ) ) {
 			$fehler = 'Dieser Entwurf existiert nicht mehr.';
@@ -904,11 +1150,13 @@ class Code_Sync_Freigabe {
 			return;
 		}
 		$original = (int) get_post_meta( $id, self::ENTWURF_VON, true );
+		$neu      = self::ist_neu( $id );
 		$konflikt = self::konflikt( $id );
 		$notiz    = (string) get_post_meta( $id, self::NOTIZ, true );
 		$knopf    = 'font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:8px 14px;border-radius:4px;border:1px solid #fff;cursor:pointer;margin-left:8px;';
 		echo '<div id="bb-freigabe-leiste" style="position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#1d2327;color:#fff;font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;box-shadow:0 -2px 8px rgba(0,0,0,.3)">';
-		echo '<div style="flex:1;min-width:200px"><strong>Vorschau BB-Entwurf zu „' . esc_html( get_the_title( $original ) ) . '“</strong>';
+		$titel = $neu ? 'Vorschau neuer Inhalt „' . get_the_title( $id ) . '“' : 'Vorschau BB-Entwurf zu „' . get_the_title( $original ) . '“';
+		echo '<div style="flex:1;min-width:200px"><strong>' . esc_html( $titel ) . '</strong>';
 		if ( '' !== $notiz ) {
 			echo '<br>' . esc_html( $notiz );
 		}
@@ -916,7 +1164,9 @@ class Code_Sync_Freigabe {
 			echo '<br><span style="color:#f86368">Live-Seite wurde seitdem geändert. Beim Freigeben gehen diese Änderungen verloren.</span>';
 		}
 		echo '</div><div style="display:flex;flex-wrap:wrap;align-items:center">';
-		echo '<a href="' . esc_url( get_permalink( $original ) ) . '" style="color:#fff;margin-left:8px">Live-Seite</a>';
+		if ( ! $neu ) {
+			echo '<a href="' . esc_url( get_permalink( $original ) ) . '" style="color:#fff;margin-left:8px">Live-Seite</a>';
+		}
 		echo '<a href="' . esc_url( add_query_arg( 'page', self::SEITE, admin_url( 'tools.php' ) ) ) . '" style="color:#fff;margin-left:12px">Zu den Freigaben</a>';
 		// phpcs:disable WordPress.Security.EscapeOutput
 		echo self::knopf( 'verwerfen', $id, 'Verwerfen', '', true );
@@ -953,7 +1203,12 @@ class Code_Sync_Freigabe {
 				$original  = (int) get_post_meta( $entwurf->ID, self::ENTWURF_VON, true );
 				$angefragt = (int) get_post_meta( $entwurf->ID, self::ANGEFRAGT, true );
 				$konflikt  = self::konflikt( $entwurf->ID );
-				echo '<tr><td><strong>' . esc_html( get_the_title( $original ) ) . '</strong><br><a href="' . esc_url( get_permalink( $original ) ) . '" target="_blank">Live-Seite</a></td>';
+				if ( self::ist_neu( $entwurf->ID ) ) {
+					$typ = get_post_type_object( $entwurf->post_type );
+					echo '<tr><td><strong>' . esc_html( get_the_title( $entwurf ) ) . '</strong><br>Neu: ' . esc_html( $typ ? $typ->labels->singular_name : $entwurf->post_type ) . ( '' !== $entwurf->post_password ? ', mit Passwort' : '' ) . '</td>';
+				} else {
+					echo '<tr><td><strong>' . esc_html( get_the_title( $original ) ) . '</strong><br><a href="' . esc_url( get_permalink( $original ) ) . '" target="_blank">Live-Seite</a></td>';
+				}
 				echo '<td>' . ( $angefragt ? 'Zur Freigabe seit ' . esc_html( wp_date( 'd.m.Y H:i', $angefragt ) ) : 'In Arbeit' ) . '<br>Zuletzt geändert ' . esc_html( get_the_modified_date( 'd.m.Y H:i', $entwurf ) );
 				if ( $konflikt ) {
 					echo '<br><span style="color:#b32d2e">Live-Seite wurde seitdem geändert. Beim Freigeben gehen diese Änderungen verloren.</span>';

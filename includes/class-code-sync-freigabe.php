@@ -159,6 +159,13 @@ class Code_Sync_Freigabe {
 
 	/** WP_Error, wenn ein Entwurfs-Werkzeug auf eine Live-Seite zielt, sonst null. */
 	private static function ziel_gesperrt( $name, $p ) {
+		if ( in_array( $name, self::$neu_werkzeuge, true ) && is_array( $p ) ) {
+			$status = isset( $p['status'] ) ? $p['status'] : ( isset( $p['post_status'] ) ? $p['post_status'] : 'draft' );
+			if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
+				return new WP_Error( 'bb_gesperrt', 'BB Basic: On this live site new content can only be created with status draft. It is published after a Buero Blanko admin approves it; call bb-basic/freigabe-anfragen when it is ready.', array( 'status' => 403 ) );
+			}
+			return null;
+		}
 		if ( ! in_array( $name, self::$entwurf_werkzeuge, true ) || ! is_array( $p ) ) {
 			return null;
 		}

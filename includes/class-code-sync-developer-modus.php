@@ -79,6 +79,11 @@ class Code_Sync_Developer_Modus {
 
 		add_action( self::CRON, array( __CLASS__, 'abgleich' ) );
 
+		// Eigener Code aus der Novamira-Sandbox zieht am Ende des Aufrufs um (siehe sandbox_umziehen).
+		if ( is_dir( self::sandbox_dir() ) || is_dir( self::code_dir() ) ) {
+			add_action( 'shutdown', array( __CLASS__, 'sandbox_umziehen' ) );
+		}
+
 		$status = self::status();
 		if ( 'clear' === self::$zustand['stufe'] && ! $status['aufraeumen'] && ! is_dir( self::modul_dir() ) ) {
 			// Normalfall auf allen Seiten: nichts zu tun.
@@ -661,8 +666,113 @@ class Code_Sync_Developer_Modus {
 	}
 
 	private static function sandbox_belegt() {
-		$dateien = glob( WP_CONTENT_DIR . '/novamira-sandbox/*.php' );
+		$dateien = glob( self::sandbox_dir() . '*.php' );
 		return ! empty( $dateien );
+	}
+
+	private static function sandbox_dir() {
+		return WP_CONTENT_DIR . '/novamira-sandbox/';
+	}
+
+	/** Eigener Code ausserhalb der Sandbox, geladen von mu-plugins/bb-sandbox.php. */
+	private static function code_dir() {
+		return WPMU_PLUGIN_DIR . '/bb-sandbox/';
+	}
+
+	/**
+	 * Code, den ein Agent mit Novamira baut, legt Novamira als PHP-Datei in die Sandbox,
+	 * und nur Novamira laedt sie. Damit er nicht wegfaellt, sobald Novamira aus ist
+	 * (Entscheidung Philipp, 12.10.2026):
+	 *   build:              Code liegt in der Sandbox, der Agent kann ihn bearbeiten.
+	 *   live, sleep, clear: Code liegt in mu-plugins/bb-sandbox und laeuft ohne Novamira.
+	 * In live kann Novamira keine PHP-Dateien schreiben (live_sperre). Was hier umzieht,
+	 * stammt also aus build, und das Herunterschalten ist die Freigabe dafuer.
+	 *
+	 * Laeuft bei shutdown: In diesem Aufruf sind beide Ordner schon geladen, im naechsten
+	 * liegt jede Datei nur an einer Stelle. So wird nichts doppelt geladen.
+	 */
+	public static function sandbox_umziehen() {
+		// Ein von Hand installiertes Novamira verwaltet seine Sandbox selbst.
+		if ( self::fremd_aktiv() ) {
+			return;
+		}
+		if ( 'build' === self::$zustand['stufe'] ) {
+			// Erst zurueck, wenn unser Novamira wirklich laedt, sonst laege der Code still.
+			if ( isset( self::$geladen[ self::NOVAMIRA ] ) ) {
+				self::dateien_verschieben( self::code_dir(), self::sandbox_dir() );
+			}
+			return;
+		}
+		$dateien = is_dir( self::sandbox_dir() ) ? glob( self::sandbox_dir() . '*.php' ) : array();
+		if ( empty( $dateien ) ) {
+			return;
+		}
+		if ( self::code_ordner_bereit() ) {
+			self::dateien_verschieben( self::sandbox_dir(), self::code_dir() );
+		}
+	}
+
+	/** Lader nach mu-plugins legen bzw. aktualisieren, Ordner anlegen und vor Web-Zugriff schuetzen. */
+	private static function code_ordner_bereit() {
+		$ordner = self::code_dir();
+		if ( ! is_dir( $ordner ) && ! wp_mkdir_p( $ordner ) ) {
+			return false;
+		}
+		if ( ! file_exists( $ordner . '.htaccess' ) ) {
+			@file_put_contents( $ordner . '.htaccess', "<IfModule mod_authz_core.c>\n\tRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n\tDeny from all\n</IfModule>\n" );
+		}
+		if ( ! file_exists( $ordner . 'index.php' ) ) {
+			@file_put_contents( $ordner . 'index.php', "<?php\n// Silence is golden.\n" );
+		}
+		$vorlage = __DIR__ . '/bb-sandbox-lader.php';
+		$lader   = WPMU_PLUGIN_DIR . '/bb-sandbox.php';
+		if ( ! is_file( $lader ) || md5_file( $lader ) !== md5_file( $vorlage ) ) {
+			if ( ! @copy( $vorlage, $lader ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Verschiebt alle PHP-Dateien samt Novamiras Abschalt-Markern. Gleichnamige Ziele bleiben unangetastet. */
+	private static function dateien_verschieben( $von, $nach ) {
+		$dateien = is_dir( $von ) ? glob( $von . '*.php' ) : array();
+		if ( empty( $dateien ) ) {
+			return;
+		}
+		if ( ! is_dir( $nach ) && ! wp_mkdir_p( $nach ) ) {
+			return;
+		}
+		foreach ( $dateien as $datei ) {
+			$name = basename( $datei );
+			if ( 'index.php' === $name || file_exists( $nach . $name ) ) {
+				continue;
+			}
+			if ( ! @rename( $datei, $nach . $name ) ) {
+				continue;
+			}
+			if ( file_exists( $von . '.' . $name . '.disabled' ) ) {
+				@rename( $von . '.' . $name . '.disabled', $nach . '.' . $name . '.disabled' );
+			}
+		}
+	}
+
+	/** Dateinamen des eigenen Codes in mu-plugins/bb-sandbox, abgeschaltete getrennt. */
+	private static function code_dateien() {
+		$an  = array();
+		$aus = array();
+		foreach ( (array) glob( self::code_dir() . '*.php' ) as $datei ) {
+			$name = basename( $datei );
+			if ( 'index.php' === $name ) {
+				continue;
+			}
+			if ( file_exists( self::code_dir() . '.' . $name . '.disabled' ) ) {
+				$aus[] = $name;
+			} else {
+				$an[] = $name;
+			}
+		}
+		return array( $an, $aus );
 	}
 
 	/**
@@ -788,6 +898,13 @@ class Code_Sync_Developer_Modus {
 		}
 		if ( self::$hinweis ) {
 			$zeilen[] = 'Hinweis: ' . self::$hinweis;
+		}
+		list( $an, $aus ) = self::code_dateien();
+		if ( $an ) {
+			$zeilen[] = 'Eigener Code aus Novamira, läuft auch ohne Novamira (wp-content/mu-plugins/bb-sandbox): ' . implode( ', ', $an );
+		}
+		if ( $aus ) {
+			$zeilen[] = 'Nach einem Fehler abgeschaltet (mu-plugins/bb-sandbox): ' . implode( ', ', $aus );
 		}
 		if ( $status['geprueft'] ) {
 			$zeilen[] = 'Zuletzt abgeglichen am ' . wp_date( 'd.m.Y H:i', $status['geprueft'] ) . ( $status['fehler'] ? ': ' . $status['fehler'] : '' );

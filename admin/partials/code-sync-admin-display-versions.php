@@ -47,7 +47,7 @@
         <?php
         $code_sync_namen = array(
             'build' => 'Auf Build schalten (Baustelle)',
-            'live'  => 'Auf Live schalten (nur lesend)',
+            'live'  => 'Auf Live schalten (mit Freigabe)',
             'sleep' => 'Auf Sleep schalten (Novamira nicht laden)',
             'clear' => 'Clear (Novamira löschen)',
         );

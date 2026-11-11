@@ -956,7 +956,7 @@ class Code_Sync_Developer_Modus {
 		}
 		$zeilen = array( $namen[ $zustand['stufe'] ] );
 		if ( 'clear' !== $zustand['stufe'] ) {
-			$zeilen[] = 'Gültig bis ' . wp_date( 'd.m.Y', $zustand['bis'] );
+			$zeilen[] = 'Gültig bis ' . gmdate( 'd.m.Y', $zustand['bis'] ); // bis ist 23:59:59 UTC
 		}
 		foreach ( array( self::NOVAMIRA => 'Novamira', self::PRO => 'Novamira Pro' ) as $name => $titel ) {
 			$version = self::version( $name );

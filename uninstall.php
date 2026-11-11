@@ -42,3 +42,4 @@ foreach ( (array) get_option( 'active_plugins', array() ) as $bb_plugin ) {
 global $wpdb;
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}code_sync_meta_tags" );
 delete_option( 'code_sync_db_version' );
+delete_option( 'code_sync_devmodus_lizenz' );

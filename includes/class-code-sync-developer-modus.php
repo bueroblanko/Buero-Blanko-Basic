@@ -12,7 +12,10 @@
  *                            sleep = Dateien bleiben liegen, werden aber nicht geladen,
  *                            clear = Dateien werden geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
- *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro
+ *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro. Wird einmal
+ *                            gelesen und in der Datenbank gemerkt (bleibt bei Updates,
+ *                            Stufenwechsel und neuer Schalter-Datei ohne Lizenz-Zeile).
+ *                            lizenz=aus vergisst sie wieder.
  *
  * Die Dateien liegen in wp-content/plugins/bb-basic-module/<name>/. Das ist eine
  * Ebene tiefer als normale Plugins, deshalb stehen sie nicht in der Plugin-Liste.
@@ -31,6 +34,7 @@ class Code_Sync_Developer_Modus {
 
 	const SCHALTER      = 'bb-developer-modus.php';
 	const OPTION        = 'code_sync_devmodus';
+	const LIZENZ_OPTION = 'code_sync_devmodus_lizenz';
 	const CRON          = 'code_sync_devmodus_abgleich';
 	const LAUFZEIT_TAGE = 14;
 	const MIN_PHP       = '8.0';
@@ -76,6 +80,9 @@ class Code_Sync_Developer_Modus {
 	public static function start() {
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		self::$zustand = file_exists( $datei ) ? self::schalter_lesen( $datei ) : array( 'stufe' => 'clear', 'lizenz' => '', 'grund' => '' );
+		if ( 'clear' !== self::$zustand['stufe'] ) {
+			self::$zustand['lizenz'] = self::lizenz_merken( self::$zustand['lizenz'] );
+		}
 
 		add_action( self::CRON, array( __CLASS__, 'abgleich' ) );
 
@@ -97,6 +104,9 @@ class Code_Sync_Developer_Modus {
 		// Neue oder geaenderte Lizenz-Zeile: Pro holen bzw. Lizenz neu aktivieren.
 		$fehlt   = $fehlt || ( $an && '' !== self::$zustand['lizenz'] && ( self::$zustand['lizenz'] !== $status['lizenz'] || ! file_exists( self::hauptdatei( self::PRO ) ) ) );
 		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
+		// Ohne laufenden WP-Cron gleicht das Backend wenigstens stuendlich ab, damit
+		// eine von Pro abgeschaltete Lizenz wieder aktiviert wird.
+		$eilig   = $eilig || ( $an && time() - $status['geprueft'] > HOUR_IN_SECONDS );
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
 		}
@@ -339,6 +349,30 @@ class Code_Sync_Developer_Modus {
 		update_option( self::OPTION, $status, false );
 	}
 
+	/**
+	 * Pro-Lizenz einmal aus der Schalter-Datei uebernehmen und in der Datenbank
+	 * merken. Fehlt die Zeile spaeter (neue Datei, Stufenwechsel), gilt die gemerkte.
+	 * Der Schluessel steht nie im Code, weil das Repo oeffentlich ist.
+	 */
+	private static function lizenz_merken( $aus_datei ) {
+		$aus_datei = trim( (string) $aus_datei );
+		if ( 'aus' === strtolower( $aus_datei ) ) {
+			delete_option( self::LIZENZ_OPTION );
+			return '';
+		}
+		$gemerkt = (string) get_option( self::LIZENZ_OPTION, '' );
+		if ( '' !== $aus_datei && $aus_datei !== $gemerkt ) {
+			update_option( self::LIZENZ_OPTION, $aus_datei, false );
+			return $aus_datei;
+		}
+		return '' !== $aus_datei ? $aus_datei : $gemerkt;
+	}
+
+	/** Domain so, wie Novamira Pro sie beim Lizenzserver meldet (wpurl ohne Schema). */
+	private static function pro_domain() {
+		return str_replace( array( 'https://', 'http://' ), '', (string) get_bloginfo( 'wpurl' ) );
+	}
+
 	public static function option_an() {
 		return '1';
 	}
@@ -446,15 +480,20 @@ class Code_Sync_Developer_Modus {
 
 		$lizenz = self::$zustand['lizenz'];
 		$suchen = time() - $status['update'] > self::UPDATE_ALLE;
+		// Ein Fehler bei der Update-Suche haelt die Lizenzpruefung unten nicht auf,
+		// solange schon eine Version auf der Seite liegt.
+		$fehler = '';
 
 		if ( $suchen || '' === self::version( self::NOVAMIRA ) ) {
 			$neueste = self::novamira_zip();
 			if ( is_wp_error( $neueste ) ) {
-				return $neueste->get_error_message();
-			}
-			if ( version_compare( self::version( self::NOVAMIRA ), $neueste['version'], '<' ) ) {
+				if ( '' === self::version( self::NOVAMIRA ) ) {
+					return $neueste->get_error_message();
+				}
+				$fehler = $neueste->get_error_message();
+			} elseif ( version_compare( self::version( self::NOVAMIRA ), $neueste['version'], '<' ) ) {
 				$fehler = self::installieren( $neueste['url'], self::NOVAMIRA );
-				if ( $fehler ) {
+				if ( $fehler && '' === self::version( self::NOVAMIRA ) ) {
 					return $fehler;
 				}
 			}
@@ -463,33 +502,60 @@ class Code_Sync_Developer_Modus {
 		if ( '' !== $lizenz && ( $suchen || '' === self::version( self::PRO ) ) ) {
 			$neueste = self::pro_zip( $lizenz, self::version( self::PRO ) );
 			if ( is_wp_error( $neueste ) ) {
-				return $neueste->get_error_message();
-			}
-			if ( $neueste && version_compare( self::version( self::PRO ), $neueste['version'], '<' ) ) {
-				$fehler = self::installieren( $neueste['url'], self::PRO );
-				if ( $fehler ) {
-					return $fehler;
+				if ( '' === self::version( self::PRO ) ) {
+					return $neueste->get_error_message();
 				}
+				$fehler = $fehler ? $fehler : $neueste->get_error_message();
+			} elseif ( $neueste && version_compare( self::version( self::PRO ), $neueste['version'], '<' ) ) {
+				$neu_fehler = self::installieren( $neueste['url'], self::PRO );
+				if ( $neu_fehler && '' === self::version( self::PRO ) ) {
+					return $neu_fehler;
+				}
+				$fehler = $fehler ? $fehler : $neu_fehler;
 			}
 		}
 		if ( $suchen ) {
 			$status['update'] = time();
 		}
 
-		// Pro bekommt die Lizenz einmal, und wieder, wenn sie sich in der Schalter-Datei aendert.
-		// Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung
-		// (der naechste Backend-Aufruf gleicht deshalb nach 5 Minuten erneut ab).
-		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && isset( self::$geladen[ self::PRO ] ) && ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+		$lizenz_fehler = self::pro_lizenz_pruefen( $lizenz, $status );
+		return $lizenz_fehler ? $lizenz_fehler : $fehler;
+	}
+
+	/**
+	 * Haelt die Pro-Lizenz aktiv: Hat Pro einen anderen Schluessel oder meldet sich
+	 * selbst als nicht aktiv (z. B. nach eigener Pruefung oder Domainwechsel), wird
+	 * die gemerkte Lizenz neu aktiviert. Laeuft bei jedem Abgleich, also stuendlich.
+	 * Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung.
+	 */
+	private static function pro_lizenz_pruefen( $lizenz, &$status ) {
+		if ( '' === $lizenz || ! isset( self::$geladen[ self::PRO ] ) ) {
+			return '';
+		}
+		if ( ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+			$status['lizenz'] = '';
 			return 'Novamira Pro ist geladen, bietet aber keine Lizenz-Aktivierung an (Version ' . self::version( self::PRO ) . ').';
 		}
-		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
-			try {
-				\Novamira\Pro\activate_new_license_key( $lizenz );
-				$status['lizenz'] = $lizenz;
-			} catch ( Throwable $e ) {
-				return 'Pro-Lizenz konnte nicht aktiviert werden: ' . $e->getMessage();
-			}
+		$aktiv  = function_exists( 'Novamira\\Pro\\is_license_active' ) ? \Novamira\Pro\is_license_active() : $lizenz === $status['lizenz'];
+		$gleich = function_exists( 'Novamira\\Pro\\license_key' ) ? \Novamira\Pro\license_key() === strtolower( trim( $lizenz ) ) : $lizenz === $status['lizenz'];
+		if ( $aktiv && $gleich ) {
+			$status['lizenz'] = $lizenz;
+			return '';
 		}
+		try {
+			$ergebnis = \Novamira\Pro\activate_new_license_key( $lizenz );
+		} catch ( Throwable $e ) {
+			$status['lizenz'] = '';
+			return 'Pro-Lizenz konnte nicht aktiviert werden: ' . $e->getMessage();
+		}
+		$ok = function_exists( 'Novamira\\Pro\\is_license_active' ) ? \Novamira\Pro\is_license_active() : ( is_array( $ergebnis ) && ! empty( $ergebnis[0] ) );
+		if ( ! $ok ) {
+			// Leer lassen, damit der naechste Abgleich es erneut versucht.
+			$status['lizenz'] = '';
+			$meldung = is_array( $ergebnis ) && ! empty( $ergebnis[1] ) ? wp_strip_all_tags( (string) $ergebnis[1] ) : 'keine Antwort';
+			return 'Pro-Lizenz nicht aktiv (' . self::pro_domain() . '): ' . $meldung;
+		}
+		$status['lizenz'] = $lizenz;
 		return '';
 	}
 
@@ -630,7 +696,7 @@ class Code_Sync_Developer_Modus {
 	 * Gibt array( version, url ) zurueck, oder null, wenn nichts Neueres da ist.
 	 */
 	private static function pro_zip( $lizenz, $installiert ) {
-		$domain = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$domain = self::pro_domain();
 		if ( '' === $installiert ) {
 			$aktiv = wp_remote_get( add_query_arg( array(
 				'woo_sl_action'     => 'activate',
@@ -730,8 +796,8 @@ class Code_Sync_Developer_Modus {
 		}
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		if ( 'clear' === $neu && ! self::testseite() ) {
-			// Datei samt Lizenzschluessel entfernen. Testseiten behalten die Datei mit
-			// stufe=clear, damit die Pro-Lizenz fuer das naechste Einschalten bleibt.
+			// Datei entfernen. Die Pro-Lizenz bleibt in der Datenbank fuer das naechste
+			// Einschalten. Testseiten behalten die Datei mit stufe=clear (Kanal, Zweig).
 			if ( file_exists( $datei ) && ! @unlink( $datei ) ) {
 				return 'Schalter-Datei konnte nicht geloescht werden.';
 			}
@@ -739,7 +805,8 @@ class Code_Sync_Developer_Modus {
 		} else {
 			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
 			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
-			foreach ( array( 'lizenz', 'kanal', 'zweig' ) as $schluessel ) {
+			// Die Lizenz bleibt in der Datenbank gemerkt und muss nicht zurueck in die Datei.
+			foreach ( array( 'kanal', 'zweig' ) as $schluessel ) {
 				if ( ! empty( self::$zustand[ $schluessel ] ) ) {
 					$zeilen[] = $schluessel . '=' . self::$zustand[ $schluessel ];
 				}
@@ -747,7 +814,8 @@ class Code_Sync_Developer_Modus {
 			if ( false === @file_put_contents( $datei, implode( "\n", $zeilen ) . "\n" ) ) {
 				return 'Schalter-Datei konnte nicht geschrieben werden.';
 			}
-			self::$zustand = self::schalter_lesen( $datei );
+			self::$zustand           = self::schalter_lesen( $datei );
+			self::$zustand['lizenz'] = self::lizenz_merken( '' );
 		}
 		// Einschalten sofort, damit Novamira beim naechsten Aufruf da ist. Abschalten
 		// im naechsten Aufruf, in dem Novamira schon nicht mehr geladen ist.
@@ -785,6 +853,11 @@ class Code_Sync_Developer_Modus {
 			if ( '' !== $version ) {
 				$zeilen[] = $titel . ' ' . $version . ( isset( self::$geladen[ $name ] ) ? ' (geladen)' : ' (nicht geladen)' );
 			}
+		}
+		$lizenz = (string) get_option( self::LIZENZ_OPTION, '' );
+		if ( '' !== $lizenz ) {
+			$aktiv    = function_exists( 'Novamira\\Pro\\is_license_active' ) ? ( \Novamira\Pro\is_license_active() ? ', aktiv' : ', nicht aktiv' ) : '';
+			$zeilen[] = 'Pro-Lizenz gemerkt (endet auf ' . substr( $lizenz, -4 ) . $aktiv . ')';
 		}
 		if ( self::$hinweis ) {
 			$zeilen[] = 'Hinweis: ' . self::$hinweis;

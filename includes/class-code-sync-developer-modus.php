@@ -12,7 +12,10 @@
  *                            sleep = Dateien bleiben liegen, werden aber nicht geladen,
  *                            clear = Dateien werden geloescht (wie ohne Schalter-Datei)
  *   bis=JJJJ-MM-TT           optional, sonst 14 Tage nach Aenderung der Datei
- *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro
+ *   lizenz=...               optional, Lizenzschluessel fuer Novamira Pro. Wird einmal
+ *                            gelesen und in der Datenbank gemerkt (bleibt bei Updates,
+ *                            Stufenwechsel und neuer Schalter-Datei ohne Lizenz-Zeile).
+ *                            lizenz=aus vergisst sie wieder.
  *
  * Die Dateien liegen in wp-content/plugins/bb-basic-module/<name>/. Das ist eine
  * Ebene tiefer als normale Plugins, deshalb stehen sie nicht in der Plugin-Liste.
@@ -31,6 +34,7 @@ class Code_Sync_Developer_Modus {
 
 	const SCHALTER      = 'bb-developer-modus.php';
 	const OPTION        = 'code_sync_devmodus';
+	const LIZENZ_OPTION = 'code_sync_devmodus_lizenz';
 	const CRON          = 'code_sync_devmodus_abgleich';
 	const LAUFZEIT_TAGE = 14;
 	const MIN_PHP       = '8.0';
@@ -76,8 +80,16 @@ class Code_Sync_Developer_Modus {
 	public static function start() {
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		self::$zustand = file_exists( $datei ) ? self::schalter_lesen( $datei ) : array( 'stufe' => 'clear', 'lizenz' => '', 'grund' => '' );
+		if ( 'clear' !== self::$zustand['stufe'] ) {
+			self::$zustand['lizenz'] = self::lizenz_merken( self::$zustand['lizenz'] );
+		}
 
 		add_action( self::CRON, array( __CLASS__, 'abgleich' ) );
+
+		// Eigener Code aus der Novamira-Sandbox zieht am Ende des Aufrufs um (siehe sandbox_umziehen).
+		if ( is_dir( self::sandbox_dir() ) || is_dir( self::code_dir() ) ) {
+			add_action( 'shutdown', array( __CLASS__, 'sandbox_umziehen' ) );
+		}
 
 		$status = self::status();
 		if ( 'clear' === self::$zustand['stufe'] && ! $status['aufraeumen'] && ! is_dir( self::modul_dir() ) ) {
@@ -97,6 +109,9 @@ class Code_Sync_Developer_Modus {
 		// Neue oder geaenderte Lizenz-Zeile: Pro holen bzw. Lizenz neu aktivieren.
 		$fehlt   = $fehlt || ( $an && '' !== self::$zustand['lizenz'] && ( self::$zustand['lizenz'] !== $status['lizenz'] || ! file_exists( self::hauptdatei( self::PRO ) ) ) );
 		$eilig   = $status['stufe'] !== self::$zustand['stufe'] || ( $fehlt && time() - $status['geprueft'] > 5 * MINUTE_IN_SECONDS );
+		// Ohne laufenden WP-Cron gleicht das Backend wenigstens stuendlich ab, damit
+		// eine von Pro abgeschaltete Lizenz wieder aktiviert wird.
+		$eilig   = $eilig || ( $an && time() - $status['geprueft'] > HOUR_IN_SECONDS );
 		if ( $naechster && $naechster > time() + 60 && $eilig ) {
 			wp_clear_scheduled_hook( self::CRON );
 		}
@@ -339,6 +354,30 @@ class Code_Sync_Developer_Modus {
 		update_option( self::OPTION, $status, false );
 	}
 
+	/**
+	 * Pro-Lizenz einmal aus der Schalter-Datei uebernehmen und in der Datenbank
+	 * merken. Fehlt die Zeile spaeter (neue Datei, Stufenwechsel), gilt die gemerkte.
+	 * Der Schluessel steht nie im Code, weil das Repo oeffentlich ist.
+	 */
+	private static function lizenz_merken( $aus_datei ) {
+		$aus_datei = trim( (string) $aus_datei );
+		if ( 'aus' === strtolower( $aus_datei ) ) {
+			delete_option( self::LIZENZ_OPTION );
+			return '';
+		}
+		$gemerkt = (string) get_option( self::LIZENZ_OPTION, '' );
+		if ( '' !== $aus_datei && $aus_datei !== $gemerkt ) {
+			update_option( self::LIZENZ_OPTION, $aus_datei, false );
+			return $aus_datei;
+		}
+		return '' !== $aus_datei ? $aus_datei : $gemerkt;
+	}
+
+	/** Domain so, wie Novamira Pro sie beim Lizenzserver meldet (wpurl ohne Schema). */
+	private static function pro_domain() {
+		return str_replace( array( 'https://', 'http://' ), '', (string) get_bloginfo( 'wpurl' ) );
+	}
+
 	public static function option_an() {
 		return '1';
 	}
@@ -446,15 +485,20 @@ class Code_Sync_Developer_Modus {
 
 		$lizenz = self::$zustand['lizenz'];
 		$suchen = time() - $status['update'] > self::UPDATE_ALLE;
+		// Ein Fehler bei der Update-Suche haelt die Lizenzpruefung unten nicht auf,
+		// solange schon eine Version auf der Seite liegt.
+		$fehler = '';
 
 		if ( $suchen || '' === self::version( self::NOVAMIRA ) ) {
 			$neueste = self::novamira_zip();
 			if ( is_wp_error( $neueste ) ) {
-				return $neueste->get_error_message();
-			}
-			if ( version_compare( self::version( self::NOVAMIRA ), $neueste['version'], '<' ) ) {
+				if ( '' === self::version( self::NOVAMIRA ) ) {
+					return $neueste->get_error_message();
+				}
+				$fehler = $neueste->get_error_message();
+			} elseif ( version_compare( self::version( self::NOVAMIRA ), $neueste['version'], '<' ) ) {
 				$fehler = self::installieren( $neueste['url'], self::NOVAMIRA );
-				if ( $fehler ) {
+				if ( $fehler && '' === self::version( self::NOVAMIRA ) ) {
 					return $fehler;
 				}
 			}
@@ -463,33 +507,60 @@ class Code_Sync_Developer_Modus {
 		if ( '' !== $lizenz && ( $suchen || '' === self::version( self::PRO ) ) ) {
 			$neueste = self::pro_zip( $lizenz, self::version( self::PRO ) );
 			if ( is_wp_error( $neueste ) ) {
-				return $neueste->get_error_message();
-			}
-			if ( $neueste && version_compare( self::version( self::PRO ), $neueste['version'], '<' ) ) {
-				$fehler = self::installieren( $neueste['url'], self::PRO );
-				if ( $fehler ) {
-					return $fehler;
+				if ( '' === self::version( self::PRO ) ) {
+					return $neueste->get_error_message();
 				}
+				$fehler = $fehler ? $fehler : $neueste->get_error_message();
+			} elseif ( $neueste && version_compare( self::version( self::PRO ), $neueste['version'], '<' ) ) {
+				$neu_fehler = self::installieren( $neueste['url'], self::PRO );
+				if ( $neu_fehler && '' === self::version( self::PRO ) ) {
+					return $neu_fehler;
+				}
+				$fehler = $fehler ? $fehler : $neu_fehler;
 			}
 		}
 		if ( $suchen ) {
 			$status['update'] = time();
 		}
 
-		// Pro bekommt die Lizenz einmal, und wieder, wenn sie sich in der Schalter-Datei aendert.
-		// Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung
-		// (der naechste Backend-Aufruf gleicht deshalb nach 5 Minuten erneut ab).
-		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && isset( self::$geladen[ self::PRO ] ) && ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+		$lizenz_fehler = self::pro_lizenz_pruefen( $lizenz, $status );
+		return $lizenz_fehler ? $lizenz_fehler : $fehler;
+	}
+
+	/**
+	 * Haelt die Pro-Lizenz aktiv: Hat Pro einen anderen Schluessel oder meldet sich
+	 * selbst als nicht aktiv (z. B. nach eigener Pruefung oder Domainwechsel), wird
+	 * die gemerkte Lizenz neu aktiviert. Laeuft bei jedem Abgleich, also stuendlich.
+	 * Frisch installiertes Pro ist erst im naechsten Aufruf geladen, dann folgt die Aktivierung.
+	 */
+	private static function pro_lizenz_pruefen( $lizenz, &$status ) {
+		if ( '' === $lizenz || ! isset( self::$geladen[ self::PRO ] ) ) {
+			return '';
+		}
+		if ( ! function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
+			$status['lizenz'] = '';
 			return 'Novamira Pro ist geladen, bietet aber keine Lizenz-Aktivierung an (Version ' . self::version( self::PRO ) . ').';
 		}
-		if ( '' !== $lizenz && $lizenz !== $status['lizenz'] && function_exists( 'Novamira\\Pro\\activate_new_license_key' ) ) {
-			try {
-				\Novamira\Pro\activate_new_license_key( $lizenz );
-				$status['lizenz'] = $lizenz;
-			} catch ( Throwable $e ) {
-				return 'Pro-Lizenz konnte nicht aktiviert werden: ' . $e->getMessage();
-			}
+		$aktiv  = function_exists( 'Novamira\\Pro\\is_license_active' ) ? \Novamira\Pro\is_license_active() : $lizenz === $status['lizenz'];
+		$gleich = function_exists( 'Novamira\\Pro\\license_key' ) ? \Novamira\Pro\license_key() === strtolower( trim( $lizenz ) ) : $lizenz === $status['lizenz'];
+		if ( $aktiv && $gleich ) {
+			$status['lizenz'] = $lizenz;
+			return '';
 		}
+		try {
+			$ergebnis = \Novamira\Pro\activate_new_license_key( $lizenz );
+		} catch ( Throwable $e ) {
+			$status['lizenz'] = '';
+			return 'Pro-Lizenz konnte nicht aktiviert werden: ' . $e->getMessage();
+		}
+		$ok = function_exists( 'Novamira\\Pro\\is_license_active' ) ? \Novamira\Pro\is_license_active() : ( is_array( $ergebnis ) && ! empty( $ergebnis[0] ) );
+		if ( ! $ok ) {
+			// Leer lassen, damit der naechste Abgleich es erneut versucht.
+			$status['lizenz'] = '';
+			$meldung = is_array( $ergebnis ) && ! empty( $ergebnis[1] ) ? wp_strip_all_tags( (string) $ergebnis[1] ) : 'keine Antwort';
+			return 'Pro-Lizenz nicht aktiv (' . self::pro_domain() . '): ' . $meldung;
+		}
+		$status['lizenz'] = $lizenz;
 		return '';
 	}
 
@@ -630,7 +701,7 @@ class Code_Sync_Developer_Modus {
 	 * Gibt array( version, url ) zurueck, oder null, wenn nichts Neueres da ist.
 	 */
 	private static function pro_zip( $lizenz, $installiert ) {
-		$domain = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$domain = self::pro_domain();
 		if ( '' === $installiert ) {
 			$aktiv = wp_remote_get( add_query_arg( array(
 				'woo_sl_action'     => 'activate',
@@ -661,8 +732,113 @@ class Code_Sync_Developer_Modus {
 	}
 
 	private static function sandbox_belegt() {
-		$dateien = glob( WP_CONTENT_DIR . '/novamira-sandbox/*.php' );
+		$dateien = glob( self::sandbox_dir() . '*.php' );
 		return ! empty( $dateien );
+	}
+
+	private static function sandbox_dir() {
+		return WP_CONTENT_DIR . '/novamira-sandbox/';
+	}
+
+	/** Eigener Code ausserhalb der Sandbox, geladen von mu-plugins/bb-sandbox.php. */
+	private static function code_dir() {
+		return WPMU_PLUGIN_DIR . '/bb-sandbox/';
+	}
+
+	/**
+	 * Code, den ein Agent mit Novamira baut, legt Novamira als PHP-Datei in die Sandbox,
+	 * und nur Novamira laedt sie. Damit er nicht wegfaellt, sobald Novamira aus ist
+	 * (Entscheidung Philipp, 12.10.2026):
+	 *   build:              Code liegt in der Sandbox, der Agent kann ihn bearbeiten.
+	 *   live, sleep, clear: Code liegt in mu-plugins/bb-sandbox und laeuft ohne Novamira.
+	 * In live kann Novamira keine PHP-Dateien schreiben (live_sperre). Was hier umzieht,
+	 * stammt also aus build, und das Herunterschalten ist die Freigabe dafuer.
+	 *
+	 * Laeuft bei shutdown: In diesem Aufruf sind beide Ordner schon geladen, im naechsten
+	 * liegt jede Datei nur an einer Stelle. So wird nichts doppelt geladen.
+	 */
+	public static function sandbox_umziehen() {
+		// Ein von Hand installiertes Novamira verwaltet seine Sandbox selbst.
+		if ( self::fremd_aktiv() ) {
+			return;
+		}
+		if ( 'build' === self::$zustand['stufe'] ) {
+			// Erst zurueck, wenn unser Novamira wirklich laedt, sonst laege der Code still.
+			if ( isset( self::$geladen[ self::NOVAMIRA ] ) ) {
+				self::dateien_verschieben( self::code_dir(), self::sandbox_dir() );
+			}
+			return;
+		}
+		$dateien = is_dir( self::sandbox_dir() ) ? glob( self::sandbox_dir() . '*.php' ) : array();
+		if ( empty( $dateien ) ) {
+			return;
+		}
+		if ( self::code_ordner_bereit() ) {
+			self::dateien_verschieben( self::sandbox_dir(), self::code_dir() );
+		}
+	}
+
+	/** Lader nach mu-plugins legen bzw. aktualisieren, Ordner anlegen und vor Web-Zugriff schuetzen. */
+	private static function code_ordner_bereit() {
+		$ordner = self::code_dir();
+		if ( ! is_dir( $ordner ) && ! wp_mkdir_p( $ordner ) ) {
+			return false;
+		}
+		if ( ! file_exists( $ordner . '.htaccess' ) ) {
+			@file_put_contents( $ordner . '.htaccess', "<IfModule mod_authz_core.c>\n\tRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n\tDeny from all\n</IfModule>\n" );
+		}
+		if ( ! file_exists( $ordner . 'index.php' ) ) {
+			@file_put_contents( $ordner . 'index.php', "<?php\n// Silence is golden.\n" );
+		}
+		$vorlage = __DIR__ . '/bb-sandbox-lader.php';
+		$lader   = WPMU_PLUGIN_DIR . '/bb-sandbox.php';
+		if ( ! is_file( $lader ) || md5_file( $lader ) !== md5_file( $vorlage ) ) {
+			if ( ! @copy( $vorlage, $lader ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Verschiebt alle PHP-Dateien samt Novamiras Abschalt-Markern. Gleichnamige Ziele bleiben unangetastet. */
+	private static function dateien_verschieben( $von, $nach ) {
+		$dateien = is_dir( $von ) ? glob( $von . '*.php' ) : array();
+		if ( empty( $dateien ) ) {
+			return;
+		}
+		if ( ! is_dir( $nach ) && ! wp_mkdir_p( $nach ) ) {
+			return;
+		}
+		foreach ( $dateien as $datei ) {
+			$name = basename( $datei );
+			if ( 'index.php' === $name || file_exists( $nach . $name ) ) {
+				continue;
+			}
+			if ( ! @rename( $datei, $nach . $name ) ) {
+				continue;
+			}
+			if ( file_exists( $von . '.' . $name . '.disabled' ) ) {
+				@rename( $von . '.' . $name . '.disabled', $nach . '.' . $name . '.disabled' );
+			}
+		}
+	}
+
+	/** Dateinamen des eigenen Codes in mu-plugins/bb-sandbox, abgeschaltete getrennt. */
+	private static function code_dateien() {
+		$an  = array();
+		$aus = array();
+		foreach ( (array) glob( self::code_dir() . '*.php' ) as $datei ) {
+			$name = basename( $datei );
+			if ( 'index.php' === $name ) {
+				continue;
+			}
+			if ( file_exists( self::code_dir() . '.' . $name . '.disabled' ) ) {
+				$aus[] = $name;
+			} else {
+				$an[] = $name;
+			}
+		}
+		return array( $an, $aus );
 	}
 
 	/**
@@ -730,8 +906,8 @@ class Code_Sync_Developer_Modus {
 		}
 		$datei = WP_CONTENT_DIR . '/' . self::SCHALTER;
 		if ( 'clear' === $neu && ! self::testseite() ) {
-			// Datei samt Lizenzschluessel entfernen. Testseiten behalten die Datei mit
-			// stufe=clear, damit die Pro-Lizenz fuer das naechste Einschalten bleibt.
+			// Datei entfernen. Die Pro-Lizenz bleibt in der Datenbank fuer das naechste
+			// Einschalten. Testseiten behalten die Datei mit stufe=clear (Kanal, Zweig).
 			if ( file_exists( $datei ) && ! @unlink( $datei ) ) {
 				return 'Schalter-Datei konnte nicht geloescht werden.';
 			}
@@ -739,7 +915,8 @@ class Code_Sync_Developer_Modus {
 		} else {
 			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
 			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
-			foreach ( array( 'lizenz', 'kanal', 'zweig' ) as $schluessel ) {
+			// Die Lizenz bleibt in der Datenbank gemerkt und muss nicht zurueck in die Datei.
+			foreach ( array( 'kanal', 'zweig' ) as $schluessel ) {
 				if ( ! empty( self::$zustand[ $schluessel ] ) ) {
 					$zeilen[] = $schluessel . '=' . self::$zustand[ $schluessel ];
 				}
@@ -747,7 +924,8 @@ class Code_Sync_Developer_Modus {
 			if ( false === @file_put_contents( $datei, implode( "\n", $zeilen ) . "\n" ) ) {
 				return 'Schalter-Datei konnte nicht geschrieben werden.';
 			}
-			self::$zustand = self::schalter_lesen( $datei );
+			self::$zustand           = self::schalter_lesen( $datei );
+			self::$zustand['lizenz'] = self::lizenz_merken( '' );
 		}
 		// Einschalten sofort, damit Novamira beim naechsten Aufruf da ist. Abschalten
 		// im naechsten Aufruf, in dem Novamira schon nicht mehr geladen ist.
@@ -778,7 +956,7 @@ class Code_Sync_Developer_Modus {
 		}
 		$zeilen = array( $namen[ $zustand['stufe'] ] );
 		if ( 'clear' !== $zustand['stufe'] ) {
-			$zeilen[] = 'Gültig bis ' . wp_date( 'd.m.Y', $zustand['bis'] );
+			$zeilen[] = 'Gültig bis ' . gmdate( 'd.m.Y', $zustand['bis'] ); // bis ist 23:59:59 UTC
 		}
 		foreach ( array( self::NOVAMIRA => 'Novamira', self::PRO => 'Novamira Pro' ) as $name => $titel ) {
 			$version = self::version( $name );
@@ -786,8 +964,20 @@ class Code_Sync_Developer_Modus {
 				$zeilen[] = $titel . ' ' . $version . ( isset( self::$geladen[ $name ] ) ? ' (geladen)' : ' (nicht geladen)' );
 			}
 		}
+		$lizenz = (string) get_option( self::LIZENZ_OPTION, '' );
+		if ( '' !== $lizenz ) {
+			$aktiv    = function_exists( 'Novamira\\Pro\\is_license_active' ) ? ( \Novamira\Pro\is_license_active() ? ', aktiv' : ', nicht aktiv' ) : '';
+			$zeilen[] = 'Pro-Lizenz gemerkt (endet auf ' . substr( $lizenz, -4 ) . $aktiv . ')';
+		}
 		if ( self::$hinweis ) {
 			$zeilen[] = 'Hinweis: ' . self::$hinweis;
+		}
+		list( $an, $aus ) = self::code_dateien();
+		if ( $an ) {
+			$zeilen[] = 'Eigener Code aus Novamira, läuft auch ohne Novamira (wp-content/mu-plugins/bb-sandbox): ' . implode( ', ', $an );
+		}
+		if ( $aus ) {
+			$zeilen[] = 'Nach einem Fehler abgeschaltet (mu-plugins/bb-sandbox): ' . implode( ', ', $aus );
 		}
 		if ( $status['geprueft'] ) {
 			$zeilen[] = 'Zuletzt abgeglichen am ' . wp_date( 'd.m.Y H:i', $status['geprueft'] ) . ( $status['fehler'] ? ': ' . $status['fehler'] : '' );

@@ -16,6 +16,11 @@
  *                            gelesen und in der Datenbank gemerkt (bleibt bei Updates,
  *                            Stufenwechsel und neuer Schalter-Datei ohne Lizenz-Zeile).
  *                            lizenz=aus vergisst sie wieder.
+ *   pakete=seiten            optional, gebuchte Pakete (mehrere mit Komma). Ab Werk keins.
+ *                            seiten = „Seiten anlegen/Module ergaenzen“: Auf Stufe live
+ *                            darf der Agent neue Seiten und neue Module/Sektionen in
+ *                            bestehenden Inhalten anlegen. Ohne Paket nur Texte und
+ *                            Bilder aendern (siehe Code_Sync_Freigabe).
  *
  * Die Dateien liegen in wp-content/plugins/bb-basic-module/<name>/. Das ist eine
  * Ebene tiefer als normale Plugins, deshalb stehen sie nicht in der Plugin-Liste.
@@ -320,6 +325,7 @@ class Code_Sync_Developer_Modus {
 			// Nur zum Zurueckschreiben in herunterschalten(), gelesen in code-sync-plugin.php.
 			'kanal'  => isset( $werte['kanal'] ) ? $werte['kanal'] : '',
 			'zweig'  => isset( $werte['zweig'] ) ? $werte['zweig'] : '',
+			'pakete' => isset( $werte['pakete'] ) ? $werte['pakete'] : '',
 		);
 		if ( in_array( $stufe, array( 'build', 'live' ), true ) && time() > $bis ) {
 			$zustand['stufe'] = 'sleep';
@@ -875,6 +881,17 @@ class Code_Sync_Developer_Modus {
 		return 0 === strpos( $name, 'core/get-' );
 	}
 
+	/**
+	 * Ist ein Paket laut Schalter-Datei gebucht? Ab Werk keins.
+	 */
+	public static function paket( $name ) {
+		if ( ! self::$zustand || empty( self::$zustand['pakete'] ) ) {
+			return false;
+		}
+		$pakete = array_map( 'trim', explode( ',', strtolower( (string) self::$zustand['pakete'] ) ) );
+		return in_array( strtolower( $name ), $pakete, true );
+	}
+
 	public static function stufe() {
 		return self::$zustand ? self::$zustand['stufe'] : 'clear';
 	}
@@ -916,7 +933,7 @@ class Code_Sync_Developer_Modus {
 			$bis    = ! empty( self::$zustand['bis'] ) && self::$zustand['bis'] > time() ? self::$zustand['bis'] : time() + self::LAUFZEIT_TAGE * DAY_IN_SECONDS;
 			$zeilen = array( '<?php exit; ?>', 'stufe=' . $neu, 'bis=' . gmdate( 'Y-m-d', $bis ) );
 			// Die Lizenz bleibt in der Datenbank gemerkt und muss nicht zurueck in die Datei.
-			foreach ( array( 'kanal', 'zweig' ) as $schluessel ) {
+			foreach ( array( 'kanal', 'zweig', 'pakete' ) as $schluessel ) {
 				if ( ! empty( self::$zustand[ $schluessel ] ) ) {
 					$zeilen[] = $schluessel . '=' . self::$zustand[ $schluessel ];
 				}
@@ -963,6 +980,9 @@ class Code_Sync_Developer_Modus {
 			if ( '' !== $version ) {
 				$zeilen[] = $titel . ' ' . $version . ( isset( self::$geladen[ $name ] ) ? ' (geladen)' : ' (nicht geladen)' );
 			}
+		}
+		if ( 'clear' !== $zustand['stufe'] ) {
+			$zeilen[] = 'Paket „Seiten anlegen/Module ergänzen“: ' . ( self::paket( 'seiten' ) ? 'gebucht' : 'nicht gebucht (auf Live nur Texte und Bilder ändern)' );
 		}
 		$lizenz = (string) get_option( self::LIZENZ_OPTION, '' );
 		if ( '' !== $lizenz ) {

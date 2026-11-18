@@ -11,6 +11,12 @@
  * Neue Inhalte (Seiten, Beitraege, eigene Inhaltstypen) legt ein Werkzeug in Stufe live
  * nur als Entwurf an. BB Basic kennzeichnet sie als „neu“; die Freigabe veroeffentlicht sie.
  *
+ * Paket „Seiten anlegen/Module ergaenzen“ (pakete=seiten in der Schalter-Datei, ab Werk
+ * aus): Ohne Paket legt ein Werkzeug in Stufe live keine neuen Seiten an und ergaenzt in
+ * Entwuerfen bestehender Inhalte keine Module, Zeilen oder Sektionen. Texte, Bilder und
+ * Einstellungen vorhandener Module aendern, Module entfernen und verschieben bleibt
+ * erlaubt, ebenso neue Beitraege und Eintraege eigener Inhaltstypen.
+ *
  * Die Sperre greift nur in Stufe live und nur waehrend Werkzeug-Aufrufen (Abilities).
  * Wer im Backend von Hand arbeitet, merkt davon nichts.
  *
@@ -60,6 +66,12 @@ class Code_Sync_Freigabe {
 	// Legen neue Inhalte an. In Stufe live nur als Entwurf (siehe post_sperre).
 	public static $neu_werkzeuge = array(
 		'novamira/create-post',
+	);
+
+	// Fuegen Module oder Layouts hinzu. In Stufe live nur mit Paket „seiten“.
+	public static $bau_werkzeuge = array(
+		'novamira/divi-add-module',
+		'novamira/divi-apply-library-item',
 	);
 
 	// Diese Meta-Felder gehoeren zur Seite selbst und werden nie kopiert.
@@ -159,6 +171,14 @@ class Code_Sync_Freigabe {
 
 	/** WP_Error, wenn ein Entwurfs-Werkzeug auf eine Live-Seite zielt, sonst null. */
 	private static function ziel_gesperrt( $name, $p ) {
+		if ( ! self::seiten_paket() ) {
+			if ( in_array( $name, self::$bau_werkzeuge, true ) ) {
+				return new WP_Error( 'bb_paket', self::paket_text(), array( 'status' => 403 ) );
+			}
+			if ( ( in_array( $name, self::$neu_werkzeuge, true ) || 'bb-basic/neuer-inhalt' === $name ) && is_array( $p ) && 'page' === self::typ_aus( $p ) ) {
+				return new WP_Error( 'bb_paket', self::paket_text(), array( 'status' => 403 ) );
+			}
+		}
 		if ( in_array( $name, self::$neu_werkzeuge, true ) && is_array( $p ) ) {
 			$status = isset( $p['status'] ) ? $p['status'] : ( isset( $p['post_status'] ) ? $p['post_status'] : 'draft' );
 			if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
@@ -180,6 +200,68 @@ class Code_Sync_Freigabe {
 			return new WP_Error( 'bb_gesperrt', self::sperr_text( $id ), array( 'status' => 403 ) );
 		}
 		return null;
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Paket „Seiten anlegen/Module ergaenzen“                             */
+	/* ------------------------------------------------------------------ */
+
+	public static function seiten_paket() {
+		return class_exists( 'Code_Sync_Developer_Modus' ) && Code_Sync_Developer_Modus::paket( 'seiten' );
+	}
+
+	private static function paket_text() {
+		return 'BB Basic: This site does not include the package "Seiten anlegen/Module ergaenzen". On this live site you can change texts, images and settings of existing modules, remove or move modules, and create new posts, but not create new pages or add new modules, rows or sections. Tell the user that adding pages or modules needs this package from Buero Blanko.';
+	}
+
+	private static function typ_aus( $p ) {
+		foreach ( array( 'post_type', 'type' ) as $schluessel ) {
+			if ( ! empty( $p[ $schluessel ] ) && is_string( $p[ $schluessel ] ) ) {
+				return sanitize_key( $p[ $schluessel ] );
+			}
+		}
+		return 'post';
+	}
+
+	/**
+	 * Zaehlt Bausteine im Inhalt je Art: Divi 5 und Gutenberg (<!-- wp:name -->)
+	 * und Divi 4 ([et_pb_name]). Schliessende Tags zaehlen nicht.
+	 */
+	public static function bausteine( $inhalt ) {
+		$zahl = array();
+		foreach ( array( '#<!--\s+wp:([a-z0-9_/-]+)#i', '#\[(et_pb_[a-z0-9_]+)#i' ) as $muster ) {
+			if ( preg_match_all( $muster, (string) $inhalt, $treffer ) ) {
+				foreach ( $treffer[1] as $art ) {
+					$art          = strtolower( $art );
+					$zahl[ $art ] = ( isset( $zahl[ $art ] ) ? $zahl[ $art ] : 0 ) + 1;
+				}
+			}
+		}
+		return $zahl;
+	}
+
+	/** Bausteinarten, die im neuen Inhalt oefter vorkommen als im alten. */
+	public static function neue_bausteine( $alt, $neu ) {
+		$vorher = self::bausteine( $alt );
+		$mehr   = array();
+		foreach ( self::bausteine( $neu ) as $art => $anzahl ) {
+			if ( $anzahl > ( isset( $vorher[ $art ] ) ? $vorher[ $art ] : 0 ) ) {
+				$mehr[] = $art;
+			}
+		}
+		return $mehr;
+	}
+
+	/** Neue Bausteine in einem Entwurf gegenueber der Live-Seite (leer bei neuen Inhalten). */
+	public static function entwurf_neue_bausteine( $entwurf, $inhalt = null ) {
+		$original = (int) get_post_meta( $entwurf, self::ENTWURF_VON, true );
+		if ( ! $original || ! get_post( $original ) ) {
+			return array();
+		}
+		if ( null === $inhalt ) {
+			$inhalt = get_post_field( 'post_content', $entwurf, 'raw' );
+		}
+		return self::neue_bausteine( get_post_field( 'post_content', $original, 'raw' ), $inhalt );
 	}
 
 	private static function sperr_text( $id ) {
@@ -235,6 +317,15 @@ class Code_Sync_Freigabe {
 		self::$neu_offen = ! $id && in_array( $typ, self::typen(), true );
 		if ( $id > 0 && self::gesperrt( $id ) ) {
 			return self::blockieren( self::sperr_text( $id ) );
+		}
+		if ( ! self::seiten_paket() ) {
+			if ( ! $id && 'page' === $typ ) {
+				self::$neu_offen = false;
+				return self::blockieren( self::paket_text() );
+			}
+			if ( $id > 0 && isset( $postarr['post_content'] ) && self::entwurf_neue_bausteine( $id, wp_unslash( $postarr['post_content'] ) ) ) {
+				return self::blockieren( self::paket_text() );
+			}
 		}
 		$status = isset( $postarr['post_status'] ) ? $postarr['post_status'] : 'draft';
 		if ( ! $id && ! in_array( $status, array( 'draft', 'auto-draft', 'pending', 'inherit' ), true ) ) {
@@ -297,7 +388,7 @@ class Code_Sync_Freigabe {
 	}
 
 	public static function anleitung( $text ) {
-		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools or novamira/update-post, then call bb-basic/freigabe-anfragen (entwurf_id, notiz). New pages, posts or custom post type entries: bb-basic/neuer-inhalt (or novamira/create-post with status draft); they stay drafts until approved. Password protection: passwort in bb-basic/neuer-inhalt or bb-basic/passwort-setzen, it takes effect on approval. Images and PDFs: bb-basic/datei-hochladen (media files are reachable by URL right after upload). A Buero Blanko admin reviews and approves everything in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
+		return $text . "\n\nBB Basic live site rules: Published content is locked. To change a page or post, call bb-basic/entwurf-anlegen (post_id) to get a draft copy with all Divi, SEO and CSS settings, edit only that draft with the novamira/divi-* tools or novamira/update-post, then call bb-basic/freigabe-anfragen (entwurf_id, notiz). New pages, posts or custom post type entries: bb-basic/neuer-inhalt (or novamira/create-post with status draft); they stay drafts until approved." . ( self::seiten_paket() ? '' : " This site does not include the package \"Seiten anlegen/Module ergaenzen\": no new pages and no new modules, rows or sections in existing content (novamira/divi-add-module and divi-apply-library-item are blocked). Changing texts, images and module settings, removing or moving modules and new posts are fine." ) . " Password protection: passwort in bb-basic/neuer-inhalt or bb-basic/passwort-setzen, it takes effect on approval. Images and PDFs: bb-basic/datei-hochladen (media files are reachable by URL right after upload). A Buero Blanko admin reviews and approves everything in wp-admin. Global Divi changes (presets, colors, fonts, variables, theme builder) are not available on live sites.";
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -880,6 +971,9 @@ class Code_Sync_Freigabe {
 	 */
 	public static function neuer_inhalt( $input ) {
 		$typ = isset( $input['post_type'] ) && '' !== $input['post_type'] ? sanitize_key( (string) $input['post_type'] ) : 'post';
+		if ( 'live' === self::$stufe && 'page' === $typ && ! self::seiten_paket() ) {
+			return new WP_Error( 'bb_paket', self::paket_text() );
+		}
 		if ( ! in_array( $typ, self::typen(), true ) ) {
 			return new WP_Error( 'bb_freigabe', 'Post type "' . $typ . '" is not supported. Allowed: ' . implode( ', ', self::typen() ) );
 		}
@@ -1212,6 +1306,10 @@ class Code_Sync_Freigabe {
 				echo '<td>' . ( $angefragt ? 'Zur Freigabe seit ' . esc_html( wp_date( 'd.m.Y H:i', $angefragt ) ) : 'In Arbeit' ) . '<br>Zuletzt geändert ' . esc_html( get_the_modified_date( 'd.m.Y H:i', $entwurf ) );
 				if ( $konflikt ) {
 					echo '<br><span style="color:#b32d2e">Live-Seite wurde seitdem geändert. Beim Freigeben gehen diese Änderungen verloren.</span>';
+				}
+				$mehr = self::seiten_paket() ? array() : self::entwurf_neue_bausteine( $entwurf->ID );
+				if ( $mehr ) {
+					echo '<br><span style="color:#b32d2e">Enthält neue Module (' . esc_html( implode( ', ', $mehr ) ) . '), Paket „Seiten anlegen/Module ergänzen“ ist nicht gebucht.</span>';
 				}
 				echo '</td><td>' . esc_html( (string) get_post_meta( $entwurf->ID, self::NOTIZ, true ) ) . '</td><td>';
 				echo '<a class="button" href="' . esc_url( get_preview_post_link( $entwurf ) ) . '">Vorschau</a> ';
